@@ -1,0 +1,26 @@
+# proxy/config.yaml
+#
+# Model aliases: every part of the project (adapters, judge, defenses)
+# requests "answering", "judge", or "embedding" -- never a raw model name.
+# To swap a model later, change ONE line here.
+
+model_list:
+  - model_name: answering
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: judge
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: embedding
+    litellm_params:
+      model: openai/text-embedding-3-small
+      api_key: os.environ/OPENAI_API_KEY
+
+litellm_settings:
+  callbacks: ["logger.metering_logger"]
+  drop_params: true
+  set_verbose: false

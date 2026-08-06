@@ -1,0 +1,17 @@
+# Creating venv & activate
+python3.11 -m venv .venv
+source .venv/bin/activate
+
+# install
+pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt
+pip freeze > requirements.lock
+
+
+# working with proxy
+set -a
+source .env
+set +a
+litellm --config proxy/config.yaml --port 4000
+
+use ctrl + c to end the proxy.
