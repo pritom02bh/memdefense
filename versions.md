@@ -18,3 +18,18 @@
 - fastapi pinned <0.120 (litellm 1.79 imports get_flat_dependant, removed in 0.120)
 - proxy callback path is "logger.metering_logger", relative to the folder
   containing config.yaml
+
+## Component 3 notes (Mem0 adapter)
+- mem0ai 2.0.15 API: search/get_all/delete_all require filters={"user_id": ...},
+  and search uses top_k (not limit). Older docs show user_id/limit — those fail.
+- Header injection attaches an httpx request hook to Mem0's internal OpenAI
+  clients (llm.client, embedding_model.client). Static extra_headers config
+  would not work: purpose must change per-call, not per-instance.
+- OBSERVED: Mem0 does not preserve session timestamps in extracted memories.
+  Smoke test asked "When did Caroline go to the LGBTQ support group?" (gold:
+  7 May 2023); Mem0 answered with the current date. Expect low temporal-category
+  accuracy at baseline. Must be reported as a framework property, not a
+  defense effect.
+- COST NOTE: each ingest turn sends the full accumulated memory context
+  (~8.5k tokens/call by turn 400). Hit OpenAI 200k TPM limit on a full
+  419-turn conversation. Runner (Component 8) needs rate-limit backoff.
