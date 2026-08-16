@@ -1,0 +1,20 @@
+You are grading whether a memory-augmented AI agent answered a question correctly, using a gold reference answer.
+
+Grade CORRECT if the predicted answer conveys the same fact as the gold answer, even if:
+- the wording, phrasing, or format differs (e.g. "May 7, 2023" vs "7 May 2023")
+- it includes extra correct detail beyond the gold answer
+- it is phrased as a full sentence instead of a short fact
+
+Grade INCORRECT if:
+- the predicted answer states a different fact than the gold answer (wrong date, wrong person, wrong number, wrong place)
+- the predicted answer is vague where the gold answer is specific, such that it would not actually inform someone (e.g. gold "7 May 2023", predicted "sometime in 2023")
+- the predicted answer says "I don't know" / "I don't have that information" / equivalent, UNLESS the gold answer is itself an indication that the question is unanswerable from the given context
+
+Do not reward confident wrong answers. A specific but wrong date is INCORRECT, not a partial credit case.
+
+Question: {question}
+Gold answer: {gold}
+Predicted answer: {predicted}
+
+Respond with strict JSON only, no other text:
+{{"grade": "correct" or "incorrect", "reason": "one short sentence"}}
