@@ -33,3 +33,24 @@
 - COST NOTE: each ingest turn sends the full accumulated memory context
   (~8.5k tokens/call by turn 400). Hit OpenAI 200k TPM limit on a full
   419-turn conversation. Runner (Component 8) needs rate-limit backoff.
+
+## Component 4 notes (judge)
+- Judge model: gpt-4o (alias "judge"). Answering model gpt-4o-mini.
+  Deliberately different and stronger to avoid self-preference.
+- Judge prompt frozen at prompts/judge.txt after calibration. DO NOT EDIT.
+- Calibration: 30 hand-graded items, 6 per category, from conv-26/conv-30
+  first 60 turns. Cohen's kappa = 0.841, percent agreement 93.3%.
+- Prompt rules tightened during calibration:
+  (a) relative time refs ("last year") where gold is absolute = INCORRECT;
+      judge must not infer what they resolve to.
+  (b) "I don't know" is INCORRECT whenever gold states any substantive
+      fact, including hedged ones.
+- Judge strips markdown code fences before JSON parse (model wraps output
+  in ```json despite instructions).
+- LoCoMo category 5 ("adversarial") questions DO have supporting evidence
+  and substantive gold answers; the adversarial element is a misleading
+  premise (wrong speaker attributed), not unanswerability. "I don't know"
+  is therefore a genuine failure on these.
+- KNOWN ISSUE: judge cache key hashes (question, gold, predicted) but NOT
+  the prompt. Editing the prompt returns stale grades silently. Must
+  `rm results/judge_cache.jsonl` after any prompt change. Fix pending.
