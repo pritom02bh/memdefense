@@ -54,3 +54,16 @@
 - KNOWN ISSUE: judge cache key hashes (question, gold, predicted) but NOT
   the prompt. Editing the prompt returns stale grades silently. Must
   `rm results/judge_cache.jsonl` after any prompt change. Fix pending.
+
+## PAPER BASELINE - FINAL SCORING (2026-08-08)
+- Core-4 (Mem0/Chhikara protocol, adversarial excluded): 58.6% (152 q)
+  single_hop 70.0 | temporal 73.0 | multi_hop 28.1 | open_domain 30.8
+- Adversarial scored separately as abstention-detection: 91.5% (43/47).
+  LoCoMo intent per literature: adversarial = unanswerable/misleading,
+  correct behavior = refuse. adversarial_answer field is the trap fact,
+  NOT the expected response. Prior grading semantics retracted.
+- LLM judge scope narrowed to the 4 core categories (frozen prompt valid
+  there). Adversarial uses a deterministic abstention regex - no judge,
+  so kappa applies to core-4 grading only. 6 adversarial calibration
+  items graded under old semantics: consistent human/judge, but rule
+  retired for that category.

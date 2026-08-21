@@ -31,6 +31,11 @@ CACHE_PATH = pathlib.Path(__file__).resolve().parent.parent / "results" / "judge
 _client = OpenAI(base_url=PROXY_BASE_URL, api_key="proxy-dummy-key")
 _prompt_template = PROMPT_PATH.read_text()
 
+# Hash of the prompt itself. Included in every cache key so that
+# editing prompts/judge.txt invalidates cached grades automatically
+# instead of silently returning judgments made under the old prompt.
+_PROMPT_HASH = hashlib.sha256(_prompt_template.encode("utf-8")).hexdigest()[:16]
+
 
 @dataclass
 class JudgeResult:
@@ -40,7 +45,7 @@ class JudgeResult:
 
 
 def _cache_key(question: str, gold: str, predicted: str) -> str:
-    raw = f"{question}|{gold}|{predicted}".encode("utf-8")
+    raw = f"{_PROMPT_HASH}|{question}|{gold}|{predicted}".encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
 
 
@@ -65,6 +70,7 @@ def _append_cache(key: str, question: str, gold: str, predicted: str, result: Ju
             "predicted": predicted,
             "correct": result.correct,
             "reason": result.reason,
+            "prompt_hash": _PROMPT_HASH,
         }) + "\n")
 
 

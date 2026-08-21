@@ -167,10 +167,20 @@ class Mem0Adapter:
 
     def reset(self, namespace: str) -> None:
         self._namespace = namespace
-        try:
-            self._mem.delete_all(filters={"user_id": namespace})
-        except Exception:
-            pass  # nothing to delete on a brand-new namespace is fine
+        # NOTE: delete_all kept the OLD signature (user_id=...), unlike
+        # search/get_all which moved to filters={...}. mem0 2.0.15 renamed
+        # the param on two of three methods. Verified via inspect.signature.
+        self._mem.delete_all(user_id=namespace)
+        # Verify the clear actually happened. delete_all failed SILENTLY for
+        # the entire project until 2026-08-08 (wrong param shape swallowed by
+        # a bare except), so reset() must prove itself every time.
+        remaining = len(self.dump_memories())
+        if remaining != 0:
+            raise RuntimeError(
+                f"reset('{namespace}') left {remaining} memories behind. "
+                "delete_all is not clearing -- check its parameter shape "
+                "against inspect.signature(Memory.delete_all)."
+            )
 
     def ingest(self, conversation: "Conversation") -> IngestStats:
         if self._namespace is None:
@@ -180,7 +190,7 @@ class Mem0Adapter:
         for turn in conversation.turns:
             try:
                 self._mem.add(
-                    [{"role": "user", "content": f"{turn.speaker}: {turn.text}"}],
+                    [{"role": "user", "content": f"[Conversation date: {turn.timestamp}] {turn.speaker}: {turn.text}"}],
                     user_id=self._namespace,
                     metadata={"turn_id": turn.turn_id, "session_id": turn.session_id},
                 )
@@ -215,7 +225,9 @@ class Mem0Adapter:
         return answer_text, AnswerStats(latency_ms=latency_ms, memories_retrieved=len(results))
 
     def dump_memories(self) -> list[MemoryRecord]:
-        raw = self._mem.get_all(filters={"user_id": self._namespace})
+        # top_k, not limit: mem0 2.0 silently ignores unknown kwargs, and the
+        # default page of 20 masked the real store size for two days.
+        raw = self._mem.get_all(filters={"user_id": self._namespace}, top_k=100000)
         items = raw.get("results", []) if isinstance(raw, dict) else (raw or [])
         out = []
         for item in items:
