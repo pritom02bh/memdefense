@@ -67,3 +67,17 @@
   so kappa applies to core-4 grading only. 6 adversarial calibration
   items graded under old semantics: consistent human/judge, but rule
   retired for that category.
+
+## Component 6: defenses (2026-08-08)
+- sanitize (regex, write-time, no LLM), provenance (origin, write-time,
+  no LLM), anomaly (LLM per turn, write-time), rerank (LLM per retrieved
+  memory, read-time). Registry + wrap() for stacking.
+- All blocked items logged to results/quarantine/{cell_id}.jsonl -> FQR.
+- Defense LLM clients must send x-cell-id themselves; the adapter's httpx
+  hook only covers framework-internal calls. Without it defense cost is
+  unattributable (found in smoke test: cell_id=None on 11 calls).
+- defenses/base.py MUST build ingest content with the timestamp prefix,
+  identical to the adapter. Missing it reintroduces the date bug and the
+  loss would be misread as defense-induced accuracy cost.
+- Local Qdrant allows ONE client per storage folder -> cells must run
+  strictly sequentially; never hold two adapters at once.
