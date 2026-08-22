@@ -99,9 +99,17 @@ def _find_and_patch(mem: Memory, run_id: str, cell_id: str, candidate_paths: lis
 class Mem0Adapter:
     """MemoryAdapter implementation backed by Mem0 (mem0ai>=2.0)."""
 
-    def __init__(self, run_id: str = "dev", cell_id: str = "mem0_dev"):
+    def __init__(self, run_id: str = "dev", cell_id: str = "mem0_dev",
+                 backbone: str = "answering"):
+        # `backbone` is the proxy ALIAS this cell's agent runs on. It
+        # drives BOTH memory extraction (Mem0's internal LLM) and
+        # answering, because a "backbone" that only answers is not
+        # really the system's backbone -- extraction quality is a large
+        # part of what a memory system is. Defaults to "answering" so
+        # every existing call site keeps its previous behaviour.
         self.run_id = run_id
         self.cell_id = cell_id
+        self.backbone = backbone
         self._namespace: str | None = None
         self._mem: Memory = self._build_memory()
         # Separate client for answer() generation -- deliberately NOT
@@ -116,7 +124,7 @@ class Mem0Adapter:
             "llm": {
                 "provider": "openai",
                 "config": {
-                    "model": "answering",
+                    "model": self.backbone,
                     "openai_base_url": PROXY_BASE_URL,
                     "api_key": "proxy-dummy-key",
                     "temperature": 0.0,
@@ -215,7 +223,7 @@ class Mem0Adapter:
             f"Memories:\n{context}\n\nQuestion: {question}"
         )
         resp = self._answer_client.chat.completions.create(
-            model="answering",
+            model=self.backbone,
             temperature=0.0,
             messages=[{"role": "user", "content": prompt}],
             extra_headers=purpose_header(),

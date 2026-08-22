@@ -14,7 +14,8 @@
 # axis silently breaks for that backbone.
 
 backbones:
-  anchor: gpt-4o-mini
+  anchor: answering            # gpt-4o-mini, via the proxy alias
+  anchor_gemini: gemini-backbone
   slice:
     - claude-backbone          # Anthropic
   # Gemini/DeepSeek omitted: no API keys. Adding a lab later means adding
@@ -45,10 +46,20 @@ runs:
     backbone: anchor
     conditions: all
     conversations: [0, 1, 2, 3, 4]
-  slice:
-    backbones: slice
-    conditions: slice_conditions
-    conversations: [0, 1]
+  # Second full anchor on a different provider. SAME protocol -- same
+  # turns, same evidence filter, same conversations, same Anthropic
+  # judge -- so the two tables are comparable to each other. Note the
+  # capability gap: gemini-3.6-flash is a newer generation than
+  # gpt-4o-mini, so differences reflect model capability as well as
+  # provider. Disclose this in the paper.
+  anchor_gemini:
+    backbone: anchor_gemini
+    conditions: all
+    conversations: [0, 1, 2, 3, 4]
+  # Slice disabled: the adapter does not yet accept a per-cell backbone
+  # (it hardcodes the "answering" alias), so slice cells would silently
+  # run on gpt-4o-mini while being labelled Claude. Enabling this needs a
+  # backbone parameter threaded through Mem0Adapter -- deferred.
 
 # Benign only. The adversarial condition needs Component 7 (attack
 # module); until then this measures the COST axis, not protection.

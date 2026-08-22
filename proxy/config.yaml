@@ -42,6 +42,15 @@ model_list:
       model: anthropic/claude-haiku-4-5-20251001
       api_key: os.environ/ANTHROPIC_API_KEY
 
+
+  # Second anchor backbone (Google). Flash tier, chosen as the
+  # like-for-like counterpart to gpt-4o-mini rather than a stronger
+  # model, so the two tables compare defenses and not model capability.
+  - model_name: gemini-backbone
+    litellm_params:
+      model: gemini/gemini-3.6-flash
+      api_key: os.environ/GOOGLE_API_KEY
+
 litellm_settings:
   callbacks: ["logger.metering_logger"]
   drop_params: true
