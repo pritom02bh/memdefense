@@ -22,8 +22,11 @@ LOG_FILE = LOG_DIR / "calls.jsonl"
 # Frozen price table -- USD per 1M tokens. Update the date if you re-price.
 PRICE_DATE = "2026-08-02"
 PRICES = {
+    # Verified against ai.google.dev 2026-08-22.
+    "gemini-3.1-flash-lite": {"in": 0.25, "out": 1.50},
+    "gemini-3.6-flash": {"in": 1.50, "out": 7.50},
+
     # PLACEHOLDER price -- verify on Google AI pricing page.
-    "gemini-3.6-flash": {"in": 0.30, "out": 2.50},   # PLACEHOLDER -- VERIFY
 
     # PLACEHOLDER price -- verify on Anthropic pricing page.
     "claude-haiku-4-5-20251001": {"in": 1.00, "out": 5.00},

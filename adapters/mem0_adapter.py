@@ -128,6 +128,11 @@ class Mem0Adapter:
                     "openai_base_url": PROXY_BASE_URL,
                     "api_key": "proxy-dummy-key",
                     "temperature": 0.0,
+                    # Mem0 defaults to a low max_tokens. Gemini emits
+                    # reasoning tokens before its JSON, so the default
+                    # budget gets exhausted mid-object and the fact
+                    # extraction is silently dropped for that turn.
+                    "max_tokens": 4000,
                 },
             },
             "embedder": {

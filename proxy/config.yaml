@@ -48,7 +48,7 @@ model_list:
   # model, so the two tables compare defenses and not model capability.
   - model_name: gemini-backbone
     litellm_params:
-      model: gemini/gemini-3.6-flash
+      model: gemini/gemini-3.1-flash-lite
       api_key: os.environ/GOOGLE_API_KEY
 
 litellm_settings:
