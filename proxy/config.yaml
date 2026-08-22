@@ -1,8 +1,12 @@
 # proxy/config.yaml
 #
 # Model aliases: every part of the project (adapters, judge, defenses)
-# requests "answering", "judge", or "embedding" -- never a raw model name.
-# To swap a model later, change ONE line here.
+# requests "answering", "judge", "embedding", or a backbone alias --
+# never a raw model name. To swap a model later, change ONE line here.
+#
+# NOTE: the callback path is "logger.metering_logger", NOT
+# "proxy.logger.metering_logger". litellm resolves it relative to the
+# folder containing this file.
 
 model_list:
   - model_name: answering
@@ -19,6 +23,24 @@ model_list:
     litellm_params:
       model: openai/text-embedding-3-small
       api_key: os.environ/OPENAI_API_KEY
+
+  # Cross-lab backbone for the slice runs (Anthropic).
+  - model_name: claude-backbone
+    litellm_params:
+      # claude-sonnet-5 rejects `temperature` (deprecated for that model).
+      # Using sonnet-4.5, which still accepts temperature=0 -- required
+      # to keep the project's determinism invariant across backbones.
+      model: anthropic/claude-sonnet-4-5-20250929
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+
+  # Cross-provider judge candidate. Judging with a different PROVIDER
+  # (not just a different model) is a stronger control against
+  # self-preference than OpenAI-judges-OpenAI.
+  - model_name: judge-claude
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_API_KEY
 
 litellm_settings:
   callbacks: ["logger.metering_logger"]

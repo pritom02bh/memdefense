@@ -91,7 +91,11 @@ def judge(question: str, gold: str, predicted: str) -> JudgeResult:
 
     with purpose("judge"):
         resp = _client.chat.completions.create(
-            model="judge",
+            # Cross-PROVIDER judge (Anthropic) grading an OpenAI answering
+            # model -- a stronger control against self-preference than
+            # same-provider judging. Recalibrated 2026-08-08: kappa=0.909
+            # on 24 core-4 hand-graded items, vs 0.841 for gpt-4o.
+            model="judge-claude",
             temperature=0.0,
             messages=[{"role": "user", "content": prompt}],
             extra_headers=purpose_header(),

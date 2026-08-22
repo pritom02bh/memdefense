@@ -22,6 +22,14 @@ LOG_FILE = LOG_DIR / "calls.jsonl"
 # Frozen price table -- USD per 1M tokens. Update the date if you re-price.
 PRICE_DATE = "2026-08-02"
 PRICES = {
+    # PLACEHOLDER price -- verify on Anthropic pricing page.
+    "claude-haiku-4-5-20251001": {"in": 1.00, "out": 5.00},
+
+    # Cross-lab backbone (Anthropic). Same units as the rest of this
+    # table: USD per MILLION tokens, dict form. PLACEHOLDER -- verify
+    # against Anthropic's pricing page and record the date in versions.md.
+    "claude-sonnet-4-5-20250929": {"in": 3.00, "out": 15.00},
+
     "gpt-4o-mini":            {"in": 0.15,  "out": 0.60},
     "gpt-4o":                 {"in": 2.50,  "out": 10.00},
     "text-embedding-3-small": {"in": 0.02,  "out": 0.00},

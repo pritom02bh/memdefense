@@ -81,3 +81,14 @@
   loss would be misread as defense-induced accuracy cost.
 - Local Qdrant allows ONE client per storage folder -> cells must run
   strictly sequentially; never hold two adapters at once.
+
+## Judge switched to Anthropic (2026-08-08)
+- judge-claude = claude-haiku-4-5-20251001, replacing gpt-4o.
+- Recalibrated on the SAME 24 core-4 hand-graded items: kappa = 0.909,
+  agreement 95.8% (gpt-4o was 0.841). Prompt unchanged and still frozen.
+- Cross-PROVIDER judging: OpenAI answers, Anthropic grades. Stronger
+  control against self-preference than same-provider judging.
+- Adversarial items excluded from judge calibration (scored by
+  deterministic abstention detection instead), so n=24 not 30.
+- Judge cache cleared: cache key includes the prompt hash but NOT the
+  judge model, so stale gpt-4o grades would otherwise be returned.

@@ -1,0 +1,55 @@
+# runner/cells.yaml
+#
+# THE EXPERIMENTAL MATRIX.
+#
+# Design: ANCHOR + SLICE, not full factorial. Full factorial would be
+# 6 conditions x N backbones x 10 convs = weeks of wall time.
+#   ANCHOR: every defense condition on ONE backbone, over enough
+#     conversations for confidence intervals -> Figure 1 frontier.
+#   SLICE: a few representative conditions on another lab's backbone,
+#     to test whether the frontier's SHAPE generalises across providers.
+#
+# Every backbone here MUST exist as an alias in proxy/config.yaml AND in
+# proxy/logger.py PRICES, or its calls log cost_usd = 0.0 and the cost
+# axis silently breaks for that backbone.
+
+backbones:
+  anchor: gpt-4o-mini
+  slice:
+    - claude-backbone          # Anthropic
+  # Gemini/DeepSeek omitted: no API keys. Adding a lab later means adding
+  # the alias to proxy/config.yaml, its price to proxy/logger.py PRICES,
+  # and its name here -- nothing else changes.
+
+judge: judge                    # gpt-4o; frozen after kappa=0.841
+
+conditions:
+  - name: none
+    defenses: []
+  - name: sanitize
+    defenses: [sanitize]
+  - name: provenance
+    defenses: [provenance]
+  - name: anomaly
+    defenses: [anomaly]
+  - name: rerank
+    defenses: [rerank]
+  - name: stacked
+    defenses: [sanitize, provenance, anomaly, rerank]
+
+# Spans the three cost profiles: baseline, no-LLM write-time, LLM read-time.
+slice_conditions: [none, sanitize, rerank]
+
+runs:
+  anchor:
+    backbone: anchor
+    conditions: all
+    conversations: [0, 1, 2, 3, 4]
+  slice:
+    backbones: slice
+    conditions: slice_conditions
+    conversations: [0, 1]
+
+# Benign only. The adversarial condition needs Component 7 (attack
+# module); until then this measures the COST axis, not protection.
+condition_type: benign
