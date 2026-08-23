@@ -3,4 +3,4 @@
 results/
 data/
 __pycache__/
-*.pyc
+*.pycresults_backup_*.tar.gz
