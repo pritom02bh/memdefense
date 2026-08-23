@@ -199,7 +199,18 @@ class Rerank(Defense):
         import time
         from adapters.base import AnswerStats
 
+        # Walk to the adapter that actually owns _mem. With a single
+        # defense, self.inner IS the Mem0Adapter -- but in the stacked
+        # condition it is another Defense wrapper, and only the object at
+        # the bottom of the chain has _mem. Hard-coding self.inner works
+        # for every single-defense cell and fails for every stacked one.
         inner = self.inner
+        while not hasattr(inner, "_mem") and hasattr(inner, "inner"):
+            inner = inner.inner
+        if not hasattr(inner, "_mem"):
+            raise AttributeError(
+                "Rerank could not reach a memory-owning adapter through "
+                "the defense chain")
         # Retrieve via the inner mem0 adapter's own store/config.
         start = time.monotonic()
         hits = inner._mem.search(
