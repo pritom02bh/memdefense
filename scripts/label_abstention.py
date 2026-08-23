@@ -82,6 +82,9 @@ def main():
     ap.add_argument("--n", type=int, default=40, help="how many to label")
     ap.add_argument("--seed", type=int, default=4242)
     ap.add_argument("--review", action="store_true")
+    ap.add_argument("--failures", action="store_true",
+                    help="label ONLY the items the regex scored as failures; "
+                         "these are the items every adversarial delta rests on")
     args = ap.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -97,12 +100,29 @@ def main():
         h = hashlib.sha256(f"{it['cell_id']}|{it['qa_id']}".encode()).hexdigest()
         it["item_key"] = h[:12]
 
-    rng = random.Random(args.seed)
-    rng.shuffle(items)
-    sample = items[:args.n]
+    if args.failures:
+        # Targeted, not random. The regex marks ~6% of items as failures and
+        # those few items are what every adversarial delta is computed from;
+        # a random sample spends 95% of your effort re-confirming obvious
+        # refusals while leaving the decisive items unlabeled.
+        sample = [it for it in items if not it["regex_said"]]
+        print("[failures mode] labeling every item the regex called a failure.")
+    else:
+        rng = random.Random(args.seed)
+        rng.shuffle(items)
+        sample = items[:args.n]
 
-    keymap = {it["item_key"]: {"cell_id": it["cell_id"], "qa_id": it["qa_id"],
-                               "regex_said": it["regex_said"]} for it in sample}
+    # Merge, never overwrite: this file accumulates across runs and across
+    # growing result sets. Clobbering it strands previously written labels.
+    keymap = {}
+    if KEYMAP.exists():
+        try:
+            keymap = json.loads(KEYMAP.read_text())
+        except Exception:
+            keymap = {}
+    for it in sample:
+        keymap[it["item_key"]] = {"cell_id": it["cell_id"], "qa_id": it["qa_id"],
+                                  "regex_said": it["regex_said"]}
     KEYMAP.write_text(json.dumps(keymap, indent=2))
 
     done = {}
