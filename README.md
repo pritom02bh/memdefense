@@ -30,17 +30,6 @@ Memory-poisoning defenses are evaluated on attack success rate, yet almost all t
 
 Paired change in core accuracy vs. the undefended baseline, majority vote over 3 replicates × 5 conversations; stratified bootstrap CIs (10⁴ resamples). \*McNemar p = 0.064.
 
-<p align="center">
-  <img src="assets/fig_forest.png" width="75%" alt="Forest plot of paired accuracy deltas"><br>
-  <em>Paired core-accuracy deltas with 95% bootstrap CIs.</em>
-</p>
-
-<p align="center">
-  <img src="assets/fig_fqr.png" width="48%" alt="False quarantine rate by condition">
-  <img src="assets/fig_cost_utility.png" width="48%" alt="Token overhead vs utility change"><br>
-  <em>Left: false quarantine rate on benign traffic (every quarantine is a false positive). Right: token overhead vs. utility change.</em>
-</p>
-
 **Reading the nulls:** CIs span roughly ±4.5 pp. Write-time results mean *no effect detectable at this resolution*, not zero cost. The stacked result shows no evidence of compounding; it does not prove the defenses interact protectively.
 
 ---
