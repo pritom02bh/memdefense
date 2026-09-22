@@ -211,7 +211,8 @@ def run_cell(cell: dict, convs, max_turns, max_questions) -> dict:
                        if l.strip()]) if qpath.exists() else 0
 
     summary = {
-        "cell_id": cell_id, "group": cell["group"], "backbone": cell["backbone"],
+        "cell_id": cell_id, "seed": cell.get("seed", 1),
+        "group": cell["group"], "backbone": cell["backbone"],
         "condition": cell["condition"], "defenses": cell["defenses"],
         "conv_id": conv.conv_id, "turns_ingested": len(conv.turns),
         "memories_stored": stored, "questions_graded": len(graded),
@@ -255,11 +256,18 @@ def main():
                          "condition at a time.")
     ap.add_argument("--max-turns", type=int, default=None)
     ap.add_argument("--max-questions", type=int, default=None)
+    ap.add_argument("--seed", type=int, default=1,
+                    help="Replicate label. 1 = existing results; 2,3,... write to separate cells.")
     ap.add_argument("--data", default="data/locomo/locomo10.json")
     args = ap.parse_args()
 
     cfg = load_config()
     cells = build_cells(cfg, args.only, args.condition)
+    for c in cells:
+        c["seed"] = args.seed
+        if args.seed != 1:
+            c["cell_id"] = f"{c['cell_id']}__s{args.seed}"
+
     pending = [c for c in cells if not cell_done(c["cell_id"])]
     print(f"\nMatrix: {len(cells)} cells, {len(pending)} pending, "
           f"{len(cells)-len(pending)} complete.")

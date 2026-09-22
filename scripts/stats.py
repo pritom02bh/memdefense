@@ -40,6 +40,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import itertools
 import json
 import math
@@ -48,13 +49,41 @@ import random
 from collections import defaultdict
 
 RESULTS = pathlib.Path("results/cells")
+RESCORED = pathlib.Path("results/adversarial_rescored.json")
 BASELINE = "none"
+
+_RESCORE_CACHE = None
+
+
+def load_rescored():
+    """{item_key: abstained_bool} from rescore_abstention.py, or {}.
+
+    item_key is sha256("<cell_dir_name>|<qa_id>")[:12], matching the
+    key construction in label_abstention.py and rescore_abstention.py.
+    """
+    global _RESCORE_CACHE
+    if _RESCORE_CACHE is not None:
+        return _RESCORE_CACHE
+    if not RESCORED.exists():
+        print("!! WARNING: results/adversarial_rescored.json not found.")
+        print("!! Adversarial numbers below use the ORIGINAL biased regex.")
+        print("!! Run: python3 -m scripts.rescore_abstention")
+        _RESCORE_CACHE = {}
+        return _RESCORE_CACHE
+    blob = json.loads(RESCORED.read_text())
+    _RESCORE_CACHE = {k: bool(v["abstained"])
+                      for k, v in blob.get("per_item", {}).items()}
+    return _RESCORE_CACHE
 
 
 # ----------------------------------------------------------------- loading
 
 def load_cells(group_filter=None, backbone_filter=None):
-    """Return {(group, backbone, condition, conv_id): {qa_id: bool}}."""
+    """Return {(group, backbone, condition, conv_id): [rows_per_replicate]}.
+
+    Replicate runs (seed 2, 3, ...) of the same cell accumulate into the
+    list rather than overwriting each other.
+    """
     out = {}
     if not RESULTS.exists():
         return out
@@ -69,7 +98,18 @@ def load_cells(group_filter=None, backbone_filter=None):
             continue
         key = (s.get("group"), s.get("backbone"), s.get("condition"), s.get("conv_id"))
         rows = [json.loads(l) for l in a_path.read_text().splitlines() if l.strip()]
-        out[key] = rows
+        # Override adversarial verdicts with the corrected labels.
+        # Core4 rows are judge-graded and left exactly as run.
+        resc = load_rescored()
+        if resc:
+            for r in rows:
+                if r.get("category") != "adversarial":
+                    continue
+                ik = hashlib.sha256(
+                    f"{d.name}|{r.get('qa_id')}".encode()).hexdigest()[:12]
+                if ik in resc:
+                    r["correct"] = resc[ik]
+        out.setdefault(key, []).append(rows)
     return out
 
 
@@ -86,6 +126,26 @@ def select(rows, metric):
             continue
         sel[r["qa_id"]] = bool(r["correct"])
     return sel
+
+
+def select_replicates(reps, metric):
+    """Collapse replicate runs of one cell into a single {qa_id: bool}
+    by majority vote across replicates.
+
+    An item is scored correct only if it was correct in MORE than half
+    the runs, so an even split resolves conservatively to wrong. With a
+    single replicate this is the identity function, leaving single-seed
+    conditions byte-identical to the pre-patch behaviour.
+
+    Items missing from some replicates (e.g. a dropped judge call) are
+    voted on by the replicates that do have them; pairing against the
+    baseline still intersects on shared qa_ids downstream.
+    """
+    votes = defaultdict(list)
+    for rows in reps:
+        for q, ok in select(rows, metric).items():
+            votes[q].append(ok)
+    return {q: (sum(v) * 2 > len(v)) for q, v in votes.items()}
 
 
 # ------------------------------------------------------------------- stats
@@ -199,6 +259,12 @@ def main():
             print("=" * 92)
             print(f"{'condition':<12} {'conv':>4} {'pairs':>6} {'delta':>9} "
                   f"{'95% CI':>22} {'McNemar':>9} {'b/c':>9} {'perm p':>8}")
+            reps_by_cond = {}
+            for (c2, conv), reps in data.items():
+                reps_by_cond.setdefault(c2, set()).add(len(reps))
+            print("replicates/conv:  " + ",  ".join(
+                f"{c}={'/'.join(str(x) for x in sorted(reps_by_cond[c]))}"
+                for c in conds))
             print("-" * 92)
 
             deltas = []   # guard: baseline-only arms never enter the loop body
@@ -212,8 +278,8 @@ def main():
                     base_rows = data.get((BASELINE, conv))
                     if base_rows is None:
                         continue
-                    base = select(base_rows, metric)
-                    cur = select(rows, metric)
+                    base = select_replicates(base_rows, metric)
+                    cur = select_replicates(rows, metric)
                     d, pairs = conv_delta(base, cur)
                     if d is None:
                         continue

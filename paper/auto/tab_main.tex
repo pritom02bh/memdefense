@@ -1,0 +1,21 @@
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llrrrrr}
+\toprule
+Defense & Stage & Utility $\Delta$ & 95\% CI & Token & FQR & Quar. \\
+ &  & (pp) & (pp) & ovh. & & max \\
+\midrule
+No defense & --- & --- & --- & --- & 0.000 & 0 \\
+\midrule
+Sanitize & write & $1.8$ & $[-1.7,\,5.6]$ & 0.0\% & 0.000 & 0 \\
+Provenance & write & $1.9$ & $[-2.2,\,6.0]$ & 0.0\% & 0.000 & 0 \\
+Anomaly & write & $3.1$ & $[-0.9,\,7.1]$ & 0.0\% & 0.000 & 0 \\
+Rerank & read & $-4.4$$^{*}$ & $[-9.0,\,-0.0]$ & 0.0\% & 0.336 & 106 \\
+Stacked (all four) & write+read & $-3.1$ & $[-7.4,\,1.0]$ & 0.0\% & 0.303 & 125 \\
+\bottomrule
+\end{tabular}
+\caption{Benign-case cost of each defense, pooled over three replicates of five conversations (15 runs per condition). Utility $\Delta$ is the paired change in core accuracy against the undefended baseline; CI is a stratified bootstrap over questions within conversations. Token overhead is defense-attributed tokens as a fraction of framework baseline tokens. FQR is the mean false quarantine rate and Quar.\ max the largest number of legitimate memories quarantined in any single conversation. $^{*}$CI excludes zero.}
+\label{tab:main}
+\end{table}

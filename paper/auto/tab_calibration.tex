@@ -1,0 +1,13 @@
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lrr}
+\toprule
+Scorer & Agreement & Cohen's $\kappa$ \\
+\midrule
+Original regex & 0.862 & 0.663 \\
+Calibrated detector & 1.000 & 1.000 \\
+\bottomrule
+\end{tabular}
+\caption{Abstention scorer agreement against 58 blind hand labels drawn from the decision-relevant subset (every item the original scorer marked as a failure). The original regex recognised only a narrow set of refusal phrasings and systematically mis-scored correct refusals as failures.}
+\label{tab:calibration}
+\end{table}
