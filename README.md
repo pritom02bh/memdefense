@@ -2,176 +2,117 @@
 
 **Benign-Case Utility and Token Overhead of Memory-Poisoning Defenses in LLM Agents**
 
-Pritom Bhowmik · `pritombhowmik@ieee.org`
+Pritom Bhowmik · `pritombhowmik@ieee.org` · [arXiv:2609.22818](https://arxiv.org/abs/2609.22818)
 
-Code, harness, and per-cell outputs for the paper.
+Harness, labels, and per-run outputs for the paper.
 
----
+## Summary
 
-## TL;DR
+Memory-poisoning defenses are judged by attack success rate, yet almost all traffic they see is benign. We measure what four defenses cost when no attack is present. The memory backend, retrieval, answer prompt, and judge stay fixed; only the defense changes. Design: 6 conditions × 5 LoCoMo conversations × 3 replicates = 90 runs.
 
-Memory-poisoning defenses are evaluated on attack success rate, yet almost all traffic they process is benign. We measure what four defenses cost on **entirely attack-free** LoCoMo conversations, holding the memory backend, retrieval, backbone, and judge fixed so that only the defense varies. Each condition is replicated three times across five conversations (90 cells).
+- **Write-time defenses** (sanitize, provenance, anomaly) never fired on benign traffic. No accuracy cost is detectable at about ±4 points.
+- **The read-time reranker** fired on 9.9% of its memory decisions, withheld memory from 45% of questions, and lowered core accuracy by 4.4 points (95% CI [−9.0, −0.05]; McNemar p = 0.064). The direction held in all six runs that used it. A blind audit found only 2 of 50 sampled drops defensible.
+- **Stacking** all four did not compound the accuracy cost. It only added tokens.
 
-- **Write-time defenses** (sanitize, provenance, LLM anomaly detection): no utility cost resolvable at our ±4.5 pp resolution; zero false quarantines.
-- **Read-time reranker:** −4.4 pp core accuracy (95% CI [−9.0, −0.05]; McNemar p = 0.064), replicated but borderline. Its clearer cost: it quarantines **33.6%** of legitimate memories it adjudicates (up to 106 in one conversation) at 2.7% token overhead.
-- **Stacking all four** does not compound the cost: −3.1 pp, CI includes zero.
-- **Where a defense intercepts the pipeline, not whether it uses an LLM, predicts its benign-case price.**
+Stage and implementation vary together in this design, so the write/read pattern is an association, not a cause.
 
 ## Results
 
-| Defense    | Stage        | Utility Δ (pp), 95% CI     | Token overhead | FQR   |
-|------------|--------------|----------------------------|----------------|-------|
-| No defense | —            | —                          | —              | 0.000 |
-| Sanitize   | write        | +1.8  [−1.7, +5.6]         | 0.0%           | 0.000 |
-| Provenance | write        | +1.9  [−2.2, +6.0]         | 0.0%           | 0.000 |
-| Anomaly    | write        | +3.1  [−0.9, +7.1]         | 1.2%           | 0.000 |
-| Rerank     | read         | **−4.4\***  [−9.0, −0.05]  | 2.7%           | 0.336 |
-| Stacked    | write + read | −3.1  [−7.4, +1.0]         | 4.1%           | 0.303 |
+| Defense    | Stage | Δ core accuracy (pts), 95% CI | Token overhead τ | FQR  |
+|------------|-------|-------------------------------|------------------|------|
+| Sanitize   | write | +1.8 [−1.7, +5.6]             | 0.0%             | 0.0% |
+| Provenance | write | +1.9 [−2.2, +6.0]             | 0.0%             | 0.0% |
+| Anomaly    | write | +3.1 [−0.9, +7.1]             | 1.2%             | 0.0% |
+| Rerank     | read  | −4.4 [−9.0, −0.05]            | 2.7%             | 9.9% |
+| Stacked    | both  | −3.1 [−7.4, +1.0]             | 4.1%             | 8.9% |
 
-Paired change in core accuracy vs. the undefended baseline, majority vote over 3 replicates × 5 conversations; stratified bootstrap CIs (10⁴ resamples). \*McNemar p = 0.064.
-
-**Reading the nulls:** CIs span roughly ±4.5 pp. Write-time results mean *no effect detectable at this resolution*, not zero cost. The stacked result shows no evidence of compounding; it does not prove the defenses interact protectively.
-
----
+Δ is the paired change against the undefended baseline: majority vote over three replicates, conversations weighted equally, stratified bootstrap CI (10⁴ resamples). τ is defense tokens over baseline tokens. FQR is quarantines per decision; no content is planted, so every quarantine is a false alarm. A null means no effect detectable at this resolution, not zero cost.
 
 ## Setup
 
-| Role                | Model                         | Provider  |
-|---------------------|-------------------------------|-----------|
-| Memory extraction   | `gemini-3.1-flash-lite`       | Google    |
-| Question answering  | `gemini-3.1-flash-lite`       | Google    |
-| Anomaly detection   | `gemini-3.1-flash-lite`       | Google    |
-| Retrieval embedding | `text-embedding-3-small`      | OpenAI    |
-| Grading judge       | `claude-haiku-4-5-20251001`   | Anthropic |
+| Role                           | Model                       |
+|--------------------------------|-----------------------------|
+| Agent (extraction, answering)  | `gemini-3.1-flash-lite`     |
+| LLM defenses (anomaly, rerank) | `gemini-3.1-flash-lite`     |
+| Embedding                      | `text-embedding-3-small`    |
+| Judge                          | `claude-haiku-4-5-20251001` |
 
-- **Memory backend:** Mem0 with local vector storage; each cell writes to an isolated namespace.
-- **Data:** LoCoMo conversations conv-26, conv-30, conv-41, conv-42, conv-43, truncated to 150 turns, ≤ 75 evidence-aligned questions each.
-- **Design:** 6 conditions × 5 conversations × 3 replicates = **90 cells**, temperature 0, run sequentially.
-- **Judge:** cross-provider, κ = 0.909 on 24 hand-graded core items; prompt frozen.
-- **Adversarial abstention:** calibrated detector, κ = 1.000 on 58 blind hand labels (original regex: 86.2%, κ = 0.663; original scores preserved).
+- **Memory:** Mem0 2.0.15 with local Qdrant, one namespace per run. Top-10 retrieval, no threshold. Temperature 0. Extraction `max_tokens=4000`.
+- **Data:** LoCoMo conv-26, 30, 41, 42, 43, first 150 turns. Only questions whose evidence survives truncation, capped at 75 per conversation: 255 per run (200 core, 55 adversarial).
+- **Scoring:** core answers by a cross-provider judge (κ = 0.909 on 24 hand-graded items). Adversarial answers by abstention; hand labels override the detector.
+- **Cost:** every LLM call passes a LiteLLM proxy tagged `base`, `defense`, or `judge`, so defense tokens are measured, not estimated.
 
-### Defenses
-
-| Defense      | Stage | Mechanism                                                         |
-|--------------|-------|-------------------------------------------------------------------|
-| `sanitize`   | write | Lexical filter for injection patterns; no model call              |
-| `provenance` | write | Source/trust tagging stored as metadata; no model call            |
-| `anomaly`    | write | LLM checks each candidate memory for consistency before storage   |
-| `rerank`     | read  | LLM re-scores retrieved memories; inconsistent ones quarantined   |
-| `stacked`    | both  | All four, applied in sequence                                      |
-
-Defenses are wrappers around a uniform adapter; framework source is never modified.
-
-### Metrics
-
-| Metric                      | Definition                                                                |
-|-----------------------------|---------------------------------------------------------------------------|
-| **BUD** (Benign Utility Δ)  | Paired per-question accuracy delta vs. baseline, equal weight per conversation |
-| **Token overhead τ**        | Defense-attributed tokens ÷ framework base tokens                         |
-| **FQR**                     | Quarantined items ÷ items the defense adjudicated (all false by construction) |
-
-Every LLM call routes through a LiteLLM proxy with a purpose tag (`base` / `defense` / `judge`) and cell ID, so defense spend is measured, not estimated. Latency and dollar cost are logged but not headline metrics: latency is contaminated by rate-limit backoff, and prices change.
-
-### Statistics (`scripts/stats.py`)
-
-1. **Stratified bootstrap CI** — headline; resamples questions within conversations.
-2. **Exact McNemar** — pooled discordant pairs, exact binomial.
-3. **Exact sign-flip permutation** — conversation as unit; floor p = 0.0625 at n = 5, so it cannot reach p < 0.05 by design.
-
-Replicates are collapsed per question by majority vote before any statistic is computed.
-
----
+| Defense      | Stage | What it does                                                                 |
+|--------------|-------|------------------------------------------------------------------------------|
+| `sanitize`   | write | 8 regexes for injection phrasing on each raw turn; no model call             |
+| `provenance` | write | Blocks turns not from the user; LoCoMo has no origin field, so it never fires |
+| `anomaly`    | write | One LLM call per turn: `BENIGN` or `SUSPICIOUS`; fails open                  |
+| `rerank`     | read  | One LLM call per retrieved memory, judged alone: `TRUST` or `DROP`; fails open |
+| `stacked`    | both  | All four, each wrapping the next                                             |
 
 ## Reproduce
 
 Requires Python 3.11 and OpenAI, Anthropic, and Google API keys.
 
 ```bash
-git clone https://github.com/pritom02bh/memdefense.git
-cd memdefense
+git clone https://github.com/pritom02bh/memdefense.git && cd memdefense
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.lock
-
-cat > .env <<EOF
-OPENAI_API_KEY=...
-ANTHROPIC_API_KEY=...
-GOOGLE_API_KEY=...
-EOF
+printf 'OPENAI_API_KEY=...\nANTHROPIC_API_KEY=...\nGOOGLE_API_KEY=...\n' > .env
 ```
 
-Place LoCoMo (`locomo10.json`, from `snap-research/locomo`) at `data/locomo/locomo10.json`:
+Place LoCoMo (`locomo10.json`, from `snap-research/locomo`) at `data/locomo/locomo10.json`. SHA-256: `79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4`.
 
 ```bash
-shasum -a 256 data/locomo/locomo10.json
-# 79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4
-```
-
-**Terminal 1 — metering proxy**
-
-```bash
+# terminal 1: metering proxy
 set -a; source .env; set +a
 litellm --config proxy/config.yaml --port 4000
+
+# terminal 2: three replicates, then scoring and statistics
+for s in 1 2 3; do
+  python3 -m runner.run --only anchor_gemini --seed $s --max-turns 150 --max-questions 75
+done
+python3 -m scripts.rescore_abstention
+python3 -m scripts.stats --group anchor_gemini --metric core4
 ```
 
-**Terminal 2 — experiment**
+Runs checkpoint per question and resume; finished cells are skipped. Rerunning hosted models will not reproduce the exact numbers, which is why the outputs below are released.
 
-```bash
-python3 -m runner.run --plan                                                # list cells
-python3 -m runner.run --only anchor_gemini --max-turns 150 --max-questions 75
-python3 -m runner.run --only anchor_gemini --condition rerank --max-turns 150 --max-questions 75
+## Released outputs
 
-python3 -m runner.analyse --csv results/main.csv                            # tables, BUD, τ, FQR
-python3 -m scripts.stats --group anchor_gemini --metric core4               # CIs and tests
-```
+`results_v2.tar.gz` unpacks to `results/`:
 
-Runs checkpoint per question and resume automatically; completed cells are skipped.
+- `cells/`: all 90 runs, with per-question answers and grades
+- `quarantine/`: every block and drop
+- `proxy/calls.jsonl`: tokens for every LLM call, by purpose and run
+- `abstention_labels/`: blind hand labels, including the 8 corrections
+- `adversarial_rescored.json`: original and corrected adversarial scores
+- `quarantine_audit/`: the 50-drop blind audit
+- `judge_calibration/`: the hand-graded judge items
 
-**Calibration:** `scripts/generate_judge_calibration_set.py` → `scripts/grade_calibration.py` → `scripts/compute_kappa.py` (judge); `scripts/label_abstention.py` (blind abstention labels).
+## Pitfalls
 
----
+Each of these produced a plausible result or nearly did (paper, Appendix C):
 
-## Layout
-
-```
-memdefense/
-├── proxy/        LiteLLM config (model aliases) + metering logger
-├── core/         LoCoMo loader, evidence filter, judge, purpose tagging
-├── adapters/     uniform adapter interface + Mem0 adapter
-├── defenses/     wrapper base + sanitize / provenance / anomaly / rerank
-├── runner/       cells.yaml (matrix), run.py, analyse.py
-├── prompts/      judge.txt (frozen)
-├── scripts/      calibration, kappa, abstention labeling, statistics
-├── versions.md   pinned models, dataset checksum, prices, constraints
-└── requirements.lock
-```
-
-## Pitfalls that silently corrupt measurement
-
-Each produced a plausible number instead of an error (paper, Appendix D):
-
-- **Silent truncation.** No output-token cap on extraction → a reasoning model exhausted its budget and ~75% of memories were silently dropped. Fixed with an explicit `max_tokens`.
-- **Composition break.** In the stack, the reranker could not reach the store through the wrapper chain. Fixed by walking the chain.
-- **Narrow detector as ground truth.** The original abstention regex misgraded correct refusals. Replaced with a calibrated detector.
-- **Stale price entry.** A duplicate price silently overrode the correct one (5× error), caught by per-purpose logging.
-- **Evidence truncation.** Unfiltered questions against 150-turn transcripts gave ~25% accuracy. Fixed by evidence alignment, applied to every condition.
+- **Silent extraction failure.** A larger Gemini reasoning model, under Mem0's default 2,000-token limit, stored 82 and 67 memories on conv-26 and conv-30. The final backbone with `max_tokens=4000` stored 309 and 282. Only 4 of 300 extraction calls reached the limit, so most of the gap came from the model change or discarded output. No error was raised.
+- **Composition break.** In the stack, the reranker could not reach the store through the wrapper chain and crashed. Fixed by walking the chain.
+- **Narrow abstention regex.** It misread 31 of the 51 answers it scored as failures. Replaced by a detector; hand labels override it.
+- **Stale price entry.** A duplicate price inflated dollar cost fivefold. Token metrics were unaffected.
 
 ## Limitations
 
-Five conversations and three replicates bound resolution to ~±4.5 pp. One backbone throughout, so the write/read split is untested on other models. Act-time defenses are not evaluated. Token overhead is backbone-specific.
-
-## Ethics
-
-All conditions are benign, on a public benchmark. No attacks are run and no live or third-party systems are targeted.
+Five conversations and three replicates give about ±4-point resolution. One backbone, memory framework, and judge. No attacks are run, and no act-time defense is tested.
 
 ## Citation
 
 ```bibtex
 @misc{bhowmik2026priceofsafety,
-  title  = {The Price of Safety: Benign-Case Utility and Token Overhead of Memory-Poisoning Defenses in LLM Agents},
-  author = {Bhowmik, Pritom},
-  year   = {2026},
-  note   = {Preprint},
-  url    = {https://github.com/pritom02bh/memdefense}
+  title         = {The Price of Safety: Benign-Case Utility and Token Overhead of Memory-Poisoning Defenses in LLM Agents},
+  author        = {Bhowmik, Pritom},
+  year          = {2026},
+  eprint        = {2609.22818},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR}
 }
 ```
 
