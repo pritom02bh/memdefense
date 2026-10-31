@@ -4,8 +4,8 @@
 #
 # The problem this solves: between-conversation spread (~11pp) is roughly
 # ten times larger than the defense deltas we are trying to measure
-# (~1-3pp). Comparing GROUP MEANS therefore tells you almost nothing --
-# the conversation you happened to draw dominates the defense you applied.
+# (~1-3pp). Comparing GROUP MEANS therefore says almost nothing -- the
+# conversations drawn dominate the defense applied.
 #
 # The fix is to pair. Every condition asks the SAME questions of the SAME
 # conversations, so each question has a matched baseline counterpart.
@@ -36,6 +36,13 @@
 #   python3 -m scripts.stats
 #   python3 -m scripts.stats --group anchor_gemini --metric core4
 #   python3 -m scripts.stats --metric adversarial --boots 20000
+#   python3 -m scripts.stats --json        # also write <root>/stats.json (read by the figures)
+#
+# CELLS. A root with a manifest (core/manifest.py) uses exactly its cells:
+# the "main" cells for the per-condition table, and the "split" cells
+# (old v2 none, old v2 rerank, baseline-mini; all on August memory) for
+# the model-swap split, reported after it. A root without one (the
+# original results/) uses every cell under it.
 
 from __future__ import annotations
 
@@ -45,11 +52,14 @@ import itertools
 import json
 import math
 import pathlib
+from core import manifest as mf
+from core.paths import ADVERSARIAL_RESCORED, CELLS, RESULTS as ROOT
+from scripts.check_integrity import require_integrity
 import random
 from collections import defaultdict
 
-RESULTS = pathlib.Path("results/cells")
-RESCORED = pathlib.Path("results/adversarial_rescored.json")
+RESULTS = CELLS
+RESCORED = ADVERSARIAL_RESCORED
 BASELINE = "none"
 
 _RESCORE_CACHE = None
@@ -65,7 +75,7 @@ def load_rescored():
     if _RESCORE_CACHE is not None:
         return _RESCORE_CACHE
     if not RESCORED.exists():
-        print("!! WARNING: results/adversarial_rescored.json not found.")
+        print(f"!! WARNING: {RESCORED} not found.")
         print("!! Adversarial numbers below use the ORIGINAL biased regex.")
         print("!! Run: python3 -m scripts.rescore_abstention")
         _RESCORE_CACHE = {}
@@ -78,16 +88,21 @@ def load_rescored():
 
 # ----------------------------------------------------------------- loading
 
-def load_cells(group_filter=None, backbone_filter=None):
+def load_cells(group_filter=None, backbone_filter=None, role="main"):
     """Return {(group, backbone, condition, conv_id): [rows_per_replicate]}.
 
     Replicate runs (seed 2, 3, ...) of the same cell accumulate into the
-    list rather than overwriting each other.
+    list rather than overwriting each other. With a manifest: its cells
+    in `role` ("main" or "split"), under the manifest's condition names.
     """
     out = {}
-    if not RESULTS.exists():
+    if mf.MANIFEST.exists() or mf.required():
+        items = [(mf.entry_dir(e), e["condition"]) for e in mf.entries((role,))]
+    elif role != "main" or not RESULTS.exists():
         return out
-    for d in sorted(RESULTS.iterdir()):
+    else:
+        items = [(d, None) for d in sorted(RESULTS.iterdir())]
+    for d, cond in items:
         s_path, a_path = d / "summary.json", d / "answers.jsonl"
         if not (s_path.exists() and a_path.exists()):
             continue
@@ -96,7 +111,7 @@ def load_cells(group_filter=None, backbone_filter=None):
             continue
         if backbone_filter and s.get("backbone") != backbone_filter:
             continue
-        key = (s.get("group"), s.get("backbone"), s.get("condition"), s.get("conv_id"))
+        key = (s.get("group"), s.get("backbone"), cond or s.get("condition"), s.get("conv_id"))
         rows = [json.loads(l) for l in a_path.read_text().splitlines() if l.strip()]
         # Override adversarial verdicts with the corrected labels.
         # Core4 rows are judge-graded and left exactly as run.
@@ -223,6 +238,66 @@ def signflip_exact(deltas):
     return hits / (2 ** n), floor
 
 
+def compare(data, base_cond, cond, metric, boots):
+    """Paired delta cond - base_cond over the conversations both have
+    (majority vote over replicates), with the same three tests as the
+    main table. None if nothing pairs."""
+    per_conv_pairs, deltas, convs_used, n_pairs = [], [], [], 0
+    for (c2, conv), rows in sorted(data.items()):
+        if c2 != cond or (base_cond, conv) not in data:
+            continue
+        d, pairs = conv_delta(select_replicates(data[(base_cond, conv)], metric),
+                              select_replicates(rows, metric))
+        if d is None:
+            continue
+        deltas.append(d)
+        convs_used.append(conv)
+        per_conv_pairs.append(pairs)
+        n_pairs += len(pairs)
+    if not deltas:
+        return None
+    lo, hi, _ = bootstrap_ci(per_conv_pairs, boots)
+    b, c, p_mc = mcnemar_exact(per_conv_pairs)
+    p_perm, _ = signflip_exact(deltas)
+    return {"point": sum(deltas) / len(deltas), "ci": [lo, hi], "n_conv": len(deltas),
+            "n_pairs": n_pairs, "mcnemar_b": b, "mcnemar_c": c, "mcnemar_p": p_mc,
+            "signflip_p": p_perm, "per_conv": dict(zip(convs_used, deltas))}
+
+
+SPLIT = [("none", "mini", "(a) baseline-mini - old none   (model swap, no defense)"),
+         ("mini", "rerank", "(b) old rerank - baseline-mini (rerank at equal model)"),
+         ("none", "rerank", "(c) old rerank - old none      (the v2 delta = (a) + (b))")]
+
+
+def report_split(args, metrics, out_json):
+    """The model-swap split from the manifest's split cells."""
+    split = load_cells(args.group, args.backbone, role="split")
+    arms = defaultdict(dict)
+    for (g, bb, cond, conv), rows in split.items():
+        arms[(g, bb)][(cond, conv)] = rows
+    for (g, bb), data in sorted(arms.items()):
+        for metric in metrics:
+            print("\n" + "=" * 92)
+            print(f"MODEL-SWAP SPLIT  {g} / {bb}   metric = {metric}   (August memory only; "
+                  f"old = v2 cells in results/)")
+            print("=" * 92)
+            print(f"{'comparison':<56} {'conv':>4} {'pairs':>6} {'delta':>9} {'95% CI':>22} "
+                  f"{'McNemar':>9} {'b/c':>9} {'perm p':>8}")
+            for base, cond, label in SPLIT:
+                r = compare(data, base, cond, metric, args.boots)
+                if r is None:
+                    print(f"{label:<56}  (nothing paired)")
+                    continue
+                lo, hi = r["ci"]
+                ci = f"[{lo:+.4f}, {hi:+.4f}]" if lo is not None else "n/a"
+                print(f"{label:<56} {r['n_conv']:>4} {r['n_pairs']:>6} {r['point']:>+9.4f} "
+                      f"{ci:>22} {r['mcnemar_p']:>9.4f} "
+                      f"{str(r['mcnemar_b']) + '/' + str(r['mcnemar_c']):>9} "
+                      f"{r['signflip_p']:>8.4f}")
+                out_json.setdefault("split", {}).setdefault(f"{g}/{bb}", {}).setdefault(
+                    metric, {})[f"{cond}-{base}"] = r
+
+
 # -------------------------------------------------------------------- main
 
 def main():
@@ -232,11 +307,14 @@ def main():
     ap.add_argument("--metric", default="both",
                     choices=["core4", "adversarial", "both"])
     ap.add_argument("--boots", type=int, default=10000)
+    ap.add_argument("--json", action="store_true",
+                    help="also write every number printed to <root>/stats.json")
     args = ap.parse_args()
+    require_integrity()
 
     cells = load_cells(args.group, args.backbone)
     if not cells:
-        print("No cells found under results/cells/.")
+        print(f"No cells found under {RESULTS}.")
         return 1
 
     metrics = ["core4", "adversarial"] if args.metric == "both" else [args.metric]
@@ -246,6 +324,7 @@ def main():
     for (g, bb, cond, conv), rows in cells.items():
         arms[(g, bb)][(cond, conv)] = rows
 
+    out_json = {}
     for (g, bb), data in sorted(arms.items()):
         conds = sorted({c for c, _ in data})
         if BASELINE not in conds:
@@ -271,7 +350,7 @@ def main():
             for cond in conds:
                 if cond == BASELINE:
                     continue
-                per_conv_pairs, deltas, n_pairs = [], [], 0
+                per_conv_pairs, deltas, n_pairs, convs_used = [], [], 0, []
                 for (c2, conv), rows in data.items():
                     if c2 != cond:
                         continue
@@ -284,6 +363,7 @@ def main():
                     if d is None:
                         continue
                     deltas.append(d)
+                    convs_used.append(conv)
                     per_conv_pairs.append(pairs)
                     n_pairs += len(pairs)
 
@@ -302,6 +382,10 @@ def main():
 
                 print(f"{cond:<12} {len(deltas):>4} {n_pairs:>6} {point:>+9.4f} "
                       f"{ci:>22} {p_mc:>9.4f} {f'{b}/{c}':>9} {p_perm:>8.4f}{mark}")
+                out_json.setdefault(f"{g}/{bb}", {}).setdefault(metric, {})[cond] = {
+                    "point": point, "ci": [lo, hi], "n_conv": len(deltas), "n_pairs": n_pairs,
+                    "mcnemar_b": b, "mcnemar_c": c, "mcnemar_p": p_mc, "signflip_p": p_perm,
+                    "per_conv": dict(zip(convs_used, deltas))}
 
             if deltas:
                 print("-" * 92)
@@ -311,6 +395,12 @@ def main():
                       "headline number.")
                 print("      b = baseline right / defense wrong;  c = defense right "
                       "/ baseline wrong.")
+    if mf.MANIFEST.exists():
+        report_split(args, metrics, out_json)
+    if args.json:
+        path = ROOT / "stats.json"
+        path.write_text(json.dumps(out_json, indent=2))
+        print(f"\nwrote {path}")
     return 0
 
 

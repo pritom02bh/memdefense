@@ -11,15 +11,19 @@ import argparse
 import csv
 import json
 import pathlib
+from core import manifest as mf
+from core.paths import RESULTS
+from scripts.check_integrity import require_integrity
 import sys
 from collections import defaultdict
 
-RESULTS = pathlib.Path("results/cells")
+RESULTS = RESULTS / "cells"
 
 
 def load_summaries():
     out = []
-    for d in sorted(RESULTS.iterdir()) if RESULTS.exists() else []:
+    # with a manifest: its main cells and the baseline-mini cells (this root only)
+    for d in mf.cell_dirs(local_only=True) if RESULTS.exists() else []:
         f = d / "summary.json"
         if f.exists():
             out.append(json.loads(f.read_text()))
@@ -30,6 +34,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv", default=None)
     args = ap.parse_args()
+    require_integrity()
 
     summaries = load_summaries()
     if not summaries:
