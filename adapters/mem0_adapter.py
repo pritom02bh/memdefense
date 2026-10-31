@@ -33,7 +33,7 @@ import os
 import time
 import uuid
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import TYPE_CHECKING
 
 # mem0 sends usage telemetry to PostHog unless this is off, and reads it
@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING
 # MEM0_TELEMETRY=True explicitly to opt back in.
 os.environ.setdefault("MEM0_TELEMETRY", "False")
 
+import mem0.memory.main as _mem0_main
 from mem0 import Memory
 from mem0.memory.utils import extract_json, remove_code_blocks
 
@@ -56,6 +57,39 @@ if TYPE_CHECKING:
     from core.dataset import Conversation
 
 TOP_K = 10  # fixed across every framework and every cell -- do not vary this per-run
+
+# PROMPT DATE (2026-10-31). mem0 2.0.15 ends every extraction prompt with
+# "## Observation Date" and "## Current Date", both today's UTC date,
+# computed per call (configs/prompts.py _resolve_dates). Stores built on
+# different UTC dates extract differently from the first turns on
+# (results_diag/prompt_date). MEMDEF_PROMPT_DATE=YYYY-MM-DD pins both
+# dates; unset, mem0's default applies. Patched here, on the name
+# mem0.memory.main calls, never in site-packages.
+PROMPT_DATE_VAR = "MEMDEF_PROMPT_DATE"
+
+
+def prompt_date() -> str | None:
+    """The pinned extraction-prompt date, or None (mem0's UTC today).
+    Raises ValueError unless it is a real YYYY-MM-DD date."""
+    value = os.environ.get(PROMPT_DATE_VAR) or None
+    if value is not None and date.fromisoformat(value).isoformat() != value:
+        raise ValueError(f"{PROMPT_DATE_VAR}={value!r} is not YYYY-MM-DD")
+    return value
+
+
+_mem0_extraction_prompt = _mem0_main.generate_additive_extraction_prompt
+
+
+def _dated_extraction_prompt(*args, **kwargs):
+    pinned = prompt_date()
+    if pinned is not None and kwargs.get("current_date") is None:
+        # observation date defaults to the current date (no timestamp
+        # in OSS add()), so this pins both
+        kwargs["current_date"] = pinned
+    return _mem0_extraction_prompt(*args, **kwargs)
+
+
+_mem0_main.generate_additive_extraction_prompt = _dated_extraction_prompt
 
 
 class ExtractionFailed(ModelCallFailed):
@@ -159,6 +193,8 @@ class Mem0Adapter:
         self.backbone = backbone
         self.answer_alias = answer_alias or backbone
         self._namespace: str | None = None
+        # validated here, so a bad MEMDEF_PROMPT_DATE fails before any call
+        self.prompt_date = prompt_date()
         self.retries: Counter = Counter()
         # Failures mem0 caught and swallowed internally (see
         # _install_guards). Checked after every add().
