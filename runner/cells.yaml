@@ -15,14 +15,16 @@
 
 backbones:
   anchor: answering            # gpt-4o-mini, via the proxy alias
-  anchor_gemini: gemini-backbone
+  anchor_gemini: gemini-backbone   # gemini-3.1-flash-lite (proxy/config.yaml)
   slice:
     - claude-backbone          # Anthropic
   # Gemini/DeepSeek omitted: no API keys. Adding a lab later means adding
   # the alias to proxy/config.yaml, its price to proxy/logger.py PRICES,
   # and its name here -- nothing else changes.
 
-judge: judge                    # gpt-4o; frozen after kappa=0.841
+# The judge is not configured here: core/judge.py hardcodes the
+# "judge-claude" alias (claude-haiku-4-5-20251001, kappa=0.909). The old
+# "judge: judge" (gpt-4o) entry was never read and has been removed.
 
 conditions:
   - name: none
@@ -49,17 +51,18 @@ runs:
   # Second full anchor on a different provider. SAME protocol -- same
   # turns, same evidence filter, same conversations, same Anthropic
   # judge -- so the two tables are comparable to each other. Note the
-  # capability gap: gemini-3.6-flash is a newer generation than
+  # capability gap: gemini-3.1-flash-lite is a newer generation than
   # gpt-4o-mini, so differences reflect model capability as well as
-  # provider. Disclose this in the paper.
+  # provider. Disclose this in the paper. Every model call in these
+  # cells -- extraction, answer, anomaly and rerank verdicts -- runs on
+  # the backbone; only the judge and the embedder differ.
   anchor_gemini:
     backbone: anchor_gemini
     conditions: all
     conversations: [0, 1, 2, 3, 4]
-  # Slice disabled: the adapter does not yet accept a per-cell backbone
-  # (it hardcodes the "answering" alias), so slice cells would silently
-  # run on gpt-4o-mini while being labelled Claude. Enabling this needs a
-  # backbone parameter threaded through Mem0Adapter -- deferred.
+  # Slice disabled (no runs: entry). Mem0Adapter and the defenses now
+  # take the backbone per cell, so enabling it needs only a runs: entry
+  # and a re-check with scripts/check_backbones.py.
 
 # Benign only. The adversarial condition needs Component 7 (attack
 # module); until then this measures the COST axis, not protection.

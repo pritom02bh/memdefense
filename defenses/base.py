@@ -24,10 +24,11 @@
 from __future__ import annotations
 
 import json
-import pathlib
 import dataclasses
+from collections import Counter
 from typing import TYPE_CHECKING
 
+from core.paths import QUARANTINE
 from core.purpose import purpose
 from adapters.base import MemoryAdapter, MemoryRecord, IngestStats, AnswerStats
 
@@ -46,14 +47,36 @@ class Defense:
 
     name = "base"  # subclasses override; used in cell IDs and logs
 
-    def __init__(self, inner: MemoryAdapter, cell_id: str = "defense_dev"):
+    def __init__(self, inner: MemoryAdapter, cell_id: str = "defense_dev",
+                 truncate_quarantine: bool = True):
         self.inner = inner
         self.cell_id = cell_id
-        self._quarantine_path = pathlib.Path("results/quarantine") / f"{cell_id}.jsonl"
+        self.retries: Counter = Counter()
+        self._quarantine_path = QUARANTINE / f"{cell_id}.jsonl"
         self._quarantine_path.parent.mkdir(parents=True, exist_ok=True)
         # Truncate any stale quarantine log for this cell at construction,
         # so a re-run doesn't append to a previous run's blocked items.
-        self._quarantine_path.write_text("")
+        # A RESUMED answer-only cell passes False: its answers.jsonl keeps
+        # the earlier rows, so the drops logged for them must stay too.
+        if truncate_quarantine:
+            self._quarantine_path.write_text("")
+
+    # ---- the framework adapter at the bottom of the chain --------------
+
+    def base_adapter(self):
+        """Walk the wrapper chain to the framework adapter. With one
+        defense that is self.inner; in the stacked condition it is
+        several wrappers down."""
+        inner = self.inner
+        while isinstance(inner, Defense):
+            inner = inner.inner
+        return inner
+
+    @property
+    def backbone(self) -> str:
+        """The cell's backbone alias. Every defense model call uses it,
+        so a defense runs on the same model as the system it protects."""
+        return self.base_adapter().backbone
 
     # ---- hooks a subclass overrides -----------------------------------
 
@@ -69,15 +92,12 @@ class Defense:
     def reset(self, namespace: str) -> None:
         self.inner.reset(namespace)
 
-    def ingest(self, conversation: "Conversation") -> IngestStats:
-        """Filter turns through should_write(), then ingest only the
-        survivors. Blocked turns are logged and never reach the framework.
-
-        We ingest survivors one conversation-slice at a time by rebuilding
-        a Conversation with the allowed turns, so the inner adapter's own
-        ingest logic (and its metering) runs unchanged."""
+    def _filter(self, conversation: "Conversation") -> tuple["Conversation", list[dict]]:
+        """Run should_write() on every turn; return the conversation of
+        survivors and the blocked turns. Shared by ingest() and screen(),
+        so both see exactly the same turn strings."""
         allowed = []
-        blocked = 0
+        blocked = []
         for turn in conversation.turns:
             # MUST match the adapter's ingest format exactly, including the
             # timestamp prefix. Without it the extractor resolves relative
@@ -89,17 +109,36 @@ class Defense:
             if ok:
                 allowed.append(turn)
             else:
-                blocked += 1
+                blocked.append({"defense": self.name, "turn_id": turn.turn_id,
+                                "reason": reason})
                 self._log_quarantine(turn, content, reason)
+        return dataclasses.replace(conversation, turns=tuple(allowed)), blocked
 
-        filtered_conv = dataclasses.replace(conversation, turns=tuple(allowed))
+    def ingest(self, conversation: "Conversation") -> IngestStats:
+        """Filter turns through should_write(), then ingest only the
+        survivors. Blocked turns are logged and never reach the framework.
+
+        We ingest survivors one conversation-slice at a time by rebuilding
+        a Conversation with the allowed turns, so the inner adapter's own
+        ingest logic (and its metering) runs unchanged."""
+        filtered_conv, blocked = self._filter(conversation)
         stats = self.inner.ingest(filtered_conv)
         # Surface how many this defense blocked, on top of the inner stats.
         return IngestStats(
             turns_ingested=len(conversation.turns),
             memories_written=stats.memories_written,
-            errors=stats.errors + (0 if blocked >= 0 else 0),
+            errors=stats.errors,
         )
+
+    def screen(self, conversation: "Conversation") -> list[dict]:
+        """WRITE-TIME VERDICTS ONLY: run the conversation through this
+        wrapper and every wrapper inside it, in the same order ingest()
+        would, but stop before the framework -- nothing is extracted or
+        stored. Returns every blocked turn."""
+        filtered_conv, blocked = self._filter(conversation)
+        if isinstance(self.inner, Defense):
+            blocked += self.inner.screen(filtered_conv)
+        return blocked
 
     def answer(self, question: str) -> tuple[str, AnswerStats]:
         return self.inner.answer(question)

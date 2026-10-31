@@ -39,7 +39,13 @@ class IngestStats:
 @dataclass
 class AnswerStats:
     latency_ms: float
+    # Memories that reached the answer prompt (after any read-time
+    # filtering) -- the meaning this field has always had.
     memories_retrieved: int
+    # Top-k retrieved before filtering, and how many a read-time
+    # defense dropped. Equal to memories_retrieved / 0 when undefended.
+    memories_candidates: int | None = None
+    memories_dropped: int = 0
 
 
 class MemoryAdapter(Protocol):
