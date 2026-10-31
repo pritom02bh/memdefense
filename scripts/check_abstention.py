@@ -2,7 +2,7 @@
 #
 # STEP ONE: measure the CURRENT detector against the human labels before
 # building a replacement. Fitting a new regex before seeing the confusion
-# matrix is how you end up tuning patterns until the numbers look right.
+# matrix leads to tuning patterns until the numbers look right.
 #
 # Reports:
 #   - confusion matrix (regex verdict x human label) on the labeled sample
@@ -17,10 +17,13 @@ from __future__ import annotations
 import hashlib
 import json
 import pathlib
+from core import labels as lb
+from core import manifest as mf
+from core.paths import ABSTENTION_LABELS, CELLS
 from collections import Counter
 
-RESULTS = pathlib.Path("results/cells")
-LAB_DIR = pathlib.Path("results/abstention_labels")
+RESULTS = CELLS
+LAB_DIR = ABSTENTION_LABELS
 
 
 def kappa(a_vals, b_vals):
@@ -47,7 +50,7 @@ def full_index():
     against labels written at any point in the past.
     """
     idx = {}
-    for d in sorted(RESULTS.iterdir()):
+    for d in mf.cell_dirs():
         a, s = d / "answers.jsonl", d / "summary.json"
         if not (a.exists() and s.exists()):
             continue
@@ -67,11 +70,8 @@ def full_index():
 
 def main():
     keymap = full_index()
-    labels = {}
-    for line in (LAB_DIR / "labels.jsonl").read_text().splitlines():
-        if line.strip():
-            r = json.loads(line)
-            labels[r["item_key"]] = r["label"]
+    # final labels (core/labels.py), not the last row written
+    labels = lb.final(lb.ABSTENTION).labels
 
     human, machine, rows = [], [], []
     for k, lab in labels.items():
@@ -91,26 +91,26 @@ def main():
         return 1
 
     cm = Counter(zip(machine, human))
-    print("\nconfusion  (rows = regex, cols = you)")
-    print(f"{'':>12} {'you:abstain':>12} {'you:answer':>12}")
+    print("\nconfusion  (rows = regex, cols = human)")
+    print(f"{'':>12} {'human:abstain':>14} {'human:answer':>13}")
     for m in ("abstain", "answer"):
-        print(f"{'regex:'+m:>12} {cm[(m,'abstain')]:>12} {cm[(m,'answer')]:>12}")
+        print(f"{'regex:'+m:>12} {cm[(m,'abstain')]:>14} {cm[(m,'answer')]:>13}")
 
     agree = sum(1 for h, m in zip(human, machine) if h == m) / n
     print(f"\nraw agreement: {agree:.3f}")
     print(f"Cohen's kappa: {kappa(machine, human):.3f}")
 
-    # the items that matter: regex said "answer" but you said "abstain"
+    # the items that matter: regex said "answer" but the human label says "abstain"
     misses = [(k, meta) for k, meta, h, m in rows
               if m == "answer" and h == "abstain"]
-    print(f"\nregex called a FAILURE where you called it a refusal: {len(misses)}")
+    print(f"\nregex called a FAILURE where the human label says refusal: {len(misses)}")
     for k, meta in misses:
         print(f"   {meta['cell_id']}  {meta['qa_id']}")
 
     # scope: how many adversarial items does the regex call failures overall?
     tot = fail = 0
     per_cond = Counter()
-    for d in sorted(RESULTS.iterdir()):
+    for d in mf.cell_dirs():
         a = d / "answers.jsonl"
         s = d / "summary.json"
         if not (a.exists() and s.exists()):

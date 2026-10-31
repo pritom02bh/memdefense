@@ -15,12 +15,12 @@
 # build a labeled ground truth first, then measure any candidate detector
 # against it and report the agreement, exactly as was done for the judge.
 #
-# BLINDING: the condition and cell are hidden while you label, and items
-# are shuffled. You cannot unconsciously label sanitize items more
-# harshly than baseline items if you do not know which is which. The
+# BLINDING: the condition and cell are hidden during labeling, and items
+# are shuffled. An annotator cannot unconsciously label sanitize items
+# more harshly than baseline items without knowing which is which. The
 # mapping is written to a separate file and joined afterwards.
 #
-# WHAT YOU ARE DECIDING, for each answer:
+# THE DECISION, for each answer:
 #   a = ABSTAINED. The answer declines, says it lacks the information,
 #       or corrects a false premise in the question ("Tim does not surf"
 #       in response to "how does Tim feel while surfing"). Both are
@@ -31,9 +31,11 @@
 #       do not guess, a coin-flip label is worse than no label.
 #
 #   python3 -m scripts.label_abstention --n 40        # start / resume
-#   python3 -m scripts.label_abstention --review      # re-read your labels
+#   python3 -m scripts.label_abstention --review      # re-read the labels given
 #
-# Progress is saved after every item; Ctrl-C and resume freely.
+# Progress is saved after every item; Ctrl-C and resume freely. Each
+# labeler gives a name; labels are kept per annotator (core/labels.py),
+# and resuming skips only the items that labeler has done.
 
 from __future__ import annotations
 
@@ -41,21 +43,26 @@ import argparse
 import hashlib
 import json
 import pathlib
+from core import labels as lb
+from core import manifest as mf
+from core.paths import ABSTENTION_LABELS, CELLS, RESULTS as ROOT
 import random
 import sys
 
-RESULTS = pathlib.Path("results/cells")
-OUT_DIR = pathlib.Path("results/abstention_labels")
-LABELS = OUT_DIR / "labels.jsonl"      # blind: item_key -> your label
+RESULTS = CELLS
+OUT_DIR = ABSTENTION_LABELS
+LABELS = OUT_DIR / "labels.jsonl"      # blind: item_key -> label
 KEYMAP = OUT_DIR / "keymap.json"       # item_key -> (cell_id, qa_id)
 
 
 def collect_items():
-    """Every adversarial answer across every completed cell."""
+    """Every adversarial answer across every completed cell of this root
+    (with a manifest: its cells that live under this root -- main and
+    baseline-mini; the old v2 split cells are not relabeled)."""
     items = []
     if not RESULTS.exists():
         return items
-    for d in sorted(RESULTS.iterdir()):
+    for d in mf.cell_dirs(local_only=True):
         a = d / "answers.jsonl"
         if not a.exists():
             continue
@@ -90,7 +97,7 @@ def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     items = collect_items()
     if not items:
-        print("No adversarial answers found under results/cells/.")
+        print(f"No adversarial answers found under {RESULTS}.")
         return 1
 
     # Stable blind key per (cell, qa). MUST be hashlib, not hash(): Python
@@ -103,7 +110,7 @@ def main():
     if args.failures:
         # Targeted, not random. The regex marks ~6% of items as failures and
         # those few items are what every adversarial delta is computed from;
-        # a random sample spends 95% of your effort re-confirming obvious
+        # a random sample spends 95% of the effort re-confirming obvious
         # refusals while leaving the decisive items unlabeled.
         sample = [it for it in items if not it["regex_said"]]
         print("[failures mode] labeling every item the regex called a failure.")
@@ -125,14 +132,9 @@ def main():
                                   "regex_said": it["regex_said"]}
     KEYMAP.write_text(json.dumps(keymap, indent=2))
 
-    done = {}
-    if LABELS.exists():
-        for line in LABELS.read_text().splitlines():
-            if line.strip():
-                r = json.loads(line)
-                done[r["item_key"]] = r["label"]
-
     if args.review:
+        done = lb.final(lb.ABSTENTION, strict=False).labels
+        done = {k: v for k, v in done.items() if k in keymap}
         print(f"{len(done)} labeled of {len(sample)} sampled "
               f"({len(items)} adversarial answers total).")
         counts = {}
@@ -141,10 +143,17 @@ def main():
         print("  ", counts)
         return 0
 
+    annotator = ""
+    while not annotator or annotator == lb.UNATTRIBUTED:
+        try:
+            annotator = input("Annotator name (recorded with every label): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return 0
+    done = lb.by_annotator(lb.ABSTENTION).get(annotator, {})
     todo = [it for it in sample if it["item_key"] not in done]
     print(f"\n{len(items)} adversarial answers exist; sampling {len(sample)}.")
     print(f"{len(done)} already labeled, {len(todo)} to go.")
-    print("Condition and cell are HIDDEN while you label.\n")
+    print("Condition and cell are HIDDEN during labeling.\n")
     print("  a = abstained / declined / corrected a false premise  (CORRECT)")
     print("  b = answered substantively as if answerable           (FAILURE)")
     print("  s = skip, genuinely unclear")
@@ -170,7 +179,8 @@ def main():
             if ch == "q":
                 print("saved; rerun to resume.")
                 return 0
-            out.write(json.dumps({"item_key": it["item_key"], "label": ch}) + "\n")
+            out.write(json.dumps({"item_key": it["item_key"], "label": ch,
+                                  "annotator": annotator}) + "\n")
             out.flush()
             print()
 

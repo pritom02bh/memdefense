@@ -13,7 +13,7 @@
 # and writing patterns to match them -- that would be fitting the
 # instrument to the desired answer. Instead:
 #
-#   1. Ground truth = your 58 hand labels, wherever they exist.
+#   1. Ground truth = the 58 hand labels, wherever they exist.
 #   2. For the remaining ~272 items, apply an EXPANDED regex built from
 #      generalisable negation patterns (not the 8 specific sentences),
 #      plus explicit handling for false-premise corrections
@@ -34,12 +34,15 @@ from __future__ import annotations
 import hashlib
 import json
 import pathlib
+from core import labels as lb
+from core import manifest as mf
+from core.paths import ABSTENTION_LABELS, ADVERSARIAL_RESCORED, CELLS
 import re
 from collections import Counter, defaultdict
 
-RESULTS = pathlib.Path("results/cells")
-LAB_DIR = pathlib.Path("results/abstention_labels")
-OUT = pathlib.Path("results/adversarial_rescored.json")
+RESULTS = CELLS
+LAB_DIR = ABSTENTION_LABELS
+OUT = ADVERSARIAL_RESCORED
 
 
 # --------------------------------------------------------------- detector
@@ -86,7 +89,9 @@ def detect_abstained(text: str) -> bool:
 
 def load_labels():
     keymap = {}
-    for d in sorted(RESULTS.iterdir()):
+    # with a manifest: all its cells, including the old v2 split cells
+    # (read-only), so the split's adversarial items are rescored too
+    for d in mf.cell_dirs():
         a, s = d / "answers.jsonl", d / "summary.json"
         if not (a.exists() and s.exists()):
             continue
@@ -97,17 +102,14 @@ def load_labels():
             if r.get("category") != "adversarial" or not r.get("predicted"):
                 continue
             k = hashlib.sha256(f"{d.name}|{r['qa_id']}".encode()).hexdigest()[:12]
-            keymap[k] = {"cell_id": d.name, "qa_id": r["qa_id"],
+            keymap[k] = {"cell_id": d.name, "dir": str(d), "qa_id": r["qa_id"],
                          "predicted": r["predicted"], "regex_said": r.get("correct")}
 
-    human = {}
-    if (LAB_DIR / "labels.jsonl").exists():
-        for line in (LAB_DIR / "labels.jsonl").read_text().splitlines():
-            if not line.strip():
-                continue
-            r = json.loads(line)
-            if r["label"] in ("a", "b") and r["item_key"] in keymap:
-                human[r["item_key"]] = (r["label"] == "a")  # True = abstained
+    # the FINAL label per item (core/labels.py: owner's resolution, else
+    # the annotators' shared label, else the owner's), not the last row
+    human = {k: lab == "a"  # True = abstained
+             for k, lab in lb.decided(lb.ABSTENTION, lb.final(lb.ABSTENTION)).items()
+             if k in keymap}
     return keymap, human
 
 
@@ -143,7 +145,7 @@ def main():
     print(f"{'expanded detector':<22}{new_agree:>12.3f}{kappa(new_calls, truth):>10.3f}")
 
     remaining_errs = sum(1 for a, b in zip(new_calls, truth) if a != b)
-    print(f"\nexpanded detector still disagrees with you on "
+    print(f"\nexpanded detector still disagrees with the hand labels on "
           f"{remaining_errs}/{len(truth)} labeled items.")
     if remaining_errs:
         print("Disagreements (inspect before trusting the corrected table):")
@@ -151,7 +153,7 @@ def main():
             if detect_abstained(keymap[k]["predicted"]) != human[k]:
                 meta = keymap[k]
                 print(f"  {meta['cell_id']}  {meta['qa_id']}")
-                print(f"    you said {'abstain' if human[k] else 'answer'}, "
+                print(f"    hand label {'abstain' if human[k] else 'answer'}, "
                       f"detector said {'abstain' if detect_abstained(meta['predicted']) else 'answer'}")
                 print(f"    text: {meta['predicted'][:140]!r}")
 
@@ -171,18 +173,24 @@ def main():
 
     # --- recompute per-cell adversarial abstention rate ------------------
     per_cell = defaultdict(list)
+    cell_dir = {}
     for k, meta in keymap.items():
         per_cell[meta["cell_id"]].append(final[k]["abstained"])
+        cell_dir[meta["cell_id"]] = pathlib.Path(meta["dir"])
+    # with a manifest, condition means use its main cells only (the split
+    # cells -- old none, old rerank, baseline-mini -- are reported per cell)
+    role = ({e["cell_id"]: e["role"] for e in mf.entries()} if mf.MANIFEST.exists() else {})
 
     print(f"\n{'cell':<58}{'adv_abst (corrected)':>22}{'adv_abst (original)':>22}")
     cell_rates = {}
     for cell in sorted(per_cell):
-        d = RESULTS / cell
+        d = cell_dir[cell]
         s = json.loads((d / "summary.json").read_text())
         corrected = sum(per_cell[cell]) / len(per_cell[cell])
         original = s.get("adversarial_abstention")
         cell_rates[cell] = {
             "condition": s.get("condition"), "conv_id": s.get("conv_id"),
+            "role": role.get(cell, "main"),
             "n": len(per_cell[cell]), "adv_abst_corrected": corrected,
             "adv_abst_original": original,
         }
@@ -194,7 +202,8 @@ def main():
     #     scripts/stats.py's convention -----------------------------------
     by_cond = defaultdict(list)
     for cell, row in cell_rates.items():
-        by_cond[row["condition"]].append(row)
+        if row["role"] == "main":
+            by_cond[row["condition"]].append(row)
 
     print(f"\n{'condition':<14}{'n_conv':>8}{'corrected mean':>16}{'original mean':>16}{'delta vs none':>16}")
     cond_means = {}
