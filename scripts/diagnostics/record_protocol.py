@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-# scripts/record_protocol.py
+# scripts/diagnostics/record_protocol.py
 #
 # Writes results/PROTOCOL.md -- a complete, timestamped record of the
 # experimental configuration, produced BEFORE the run starts.
 #
 # WHY BEFORE: a protocol reconstructed after the fact is a description of
-# what you remember doing. Written first, it is a commitment you can be
-# held to -- and it catches configuration you did not realise was
+# what was remembered. Written first, it is a commitment the run can be
+# held to -- and it catches configuration nobody realised was
 # unspecified. It also fixes the exact model strings and code state, both
 # of which drift: this project has already had one model deprecated
 # (claude-sonnet-5 rejecting `temperature`) and one closed to new users
@@ -16,9 +16,9 @@
 # frozen judge prompt hash, the dataset checksum, git commit, and the
 # hash of every file that defines experimental behaviour. If any of these
 # change, results from before and after are not comparable, and the
-# manifest is what lets you prove which is which.
+# manifest is what proves which is which.
 #
-#   python3 -m scripts.record_protocol --turns 150 --questions 75 \
+#   python3 -m scripts.diagnostics.record_protocol --turns 150 --questions 75 \
 #       --backbone gemini-backbone --group anchor_gemini
 
 from __future__ import annotations
@@ -28,12 +28,14 @@ import datetime
 import hashlib
 import json
 import pathlib
+
+from core.paths import RESULTS
 import subprocess
 import sys
 
 import yaml
 
-OUT = pathlib.Path("results/PROTOCOL.md")
+OUT = RESULTS / "PROTOCOL.md"
 
 # Files whose contents define experimental behaviour. A change to any of
 # these invalidates comparability with earlier cells.
@@ -182,7 +184,7 @@ def main():
     lines.append("USD per million tokens. **Token counts are the durable")
     lines.append("measurement**; dollar figures are a dated conversion and")
     lines.append("should be reported as such. Costs can be recomputed exactly")
-    lines.append("from the raw token counts in `results/proxy/calls.jsonl`.")
+    lines.append(f"from the raw token counts in `{RESULTS.name}/proxy/calls.jsonl`.")
     lines.append("")
     pr = prices()
     if pr:

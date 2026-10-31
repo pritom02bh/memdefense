@@ -1,6 +1,22 @@
+# environment and secrets
 .venv/
 .env
-results/
-data/
 __pycache__/
-*.pycresults_backup_*.tar.gz
+*.pyc
+.DS_Store
+
+# local tool configuration
+CLAUDE.md
+.claude/
+
+# dataset (download separately, see README)
+data/
+
+# run outputs: published as release archives, not in git
+results/
+results_v3/
+results_diag/
+*.tar.gz
+
+# labeling keys map sheet items to cells and answers; never share
+**/labeling/keys/
