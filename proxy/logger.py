@@ -9,17 +9,26 @@
 #     callbacks: ["proxy.logger.metering_logger"]
 
 import json
+import os
 import time
 import pathlib
 from datetime import datetime, timezone
 
 from litellm.integrations.custom_logger import CustomLogger
 
-LOG_DIR = pathlib.Path(__file__).resolve().parent.parent / "results" / "proxy"
+# Output root: same rule as core/paths.py (MEMDEF_RESULTS, default
+# "results", relative to the repo root). Repeated here because litellm
+# loads this file relative to proxy/, where core/ may not be importable.
+# Read once at proxy start: restart the proxy to change it.
+_ROOT = pathlib.Path(os.environ.get("MEMDEF_RESULTS", "results"))
+if not _ROOT.is_absolute():
+    _ROOT = pathlib.Path(__file__).resolve().parent.parent / _ROOT
+LOG_DIR = _ROOT / "proxy"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / "calls.jsonl"
+print(f"[metering] logging calls to {LOG_FILE}", flush=True)
 
-# Frozen price table -- USD per 1M tokens. Update the date if you re-price.
+# Frozen price table -- USD per 1M tokens. Update the date when re-pricing.
 PRICE_DATE = "2026-08-02"
 PRICES = {
     # Verified against ai.google.dev 2026-08-22.
@@ -57,6 +66,19 @@ def _extract_headers(kwargs: dict) -> dict:
         return proxy_req.get("headers", {}) or {}
     except Exception:
         return {}
+
+
+def _requested_alias(kwargs: dict):
+    """The alias the CLIENT asked for ("gemini-backbone"), from the
+    original request body litellm keeps in proxy_server_request.
+    kwargs["model"] is already the resolved model, so model_alias below
+    never actually held the alias."""
+    try:
+        litellm_params = kwargs.get("litellm_params", {}) or {}
+        proxy_req = litellm_params.get("proxy_server_request", {}) or {}
+        return (proxy_req.get("body", {}) or {}).get("model")
+    except Exception:
+        return None
 
 
 def _get_header(headers: dict, name: str, default=None):
@@ -142,8 +164,10 @@ def _build_record(kwargs: dict, response_obj, start_time, end_time, status: str,
     return {
         "ts": datetime.now(timezone.utc).isoformat(),
         "purpose": _get_header(headers, "x-purpose", "base"),
+        "step": _get_header(headers, "x-step"),
         "run_id": _get_header(headers, "x-run-id"),
         "cell_id": _get_header(headers, "x-cell-id"),
+        "alias_requested": _requested_alias(kwargs),
         "model_alias": model_alias,
         "model_resolved": base_model,
         "tokens_in": tokens_in,

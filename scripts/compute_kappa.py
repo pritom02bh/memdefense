@@ -2,7 +2,7 @@
 #
 # Component 4 blocking test. Reads results/judge_calibration/answers.jsonl
 # (with human_grade filled in by hand), runs the judge on the same items,
-# and computes Cohen's kappa between you and the judge.
+# and computes Cohen's kappa between the human grades and the judge.
 #
 # kappa >= 0.8 required before the judge can be trusted for real cells.
 # If it's below that: read the disagreements printed below, revise
@@ -13,11 +13,12 @@
 
 import json
 import pathlib
+from core.paths import RESULTS
 import sys
 
 from core.judge import judge, CACHE_PATH
 
-IN_FILE = pathlib.Path("results/judge_calibration/answers.jsonl")
+IN_FILE = RESULTS / "judge_calibration" / "answers.jsonl"
 
 
 def cohens_kappa(human: list[bool], model: list[bool]) -> float:
@@ -89,7 +90,7 @@ def main():
             print(f"  Q: {row['question']}")
             print(f"  Gold: {row['gold']}")
             print(f"  Predicted: {row['predicted']}")
-            print(f"  You said: {'correct' if row['human_grade'] else 'incorrect'}   "
+            print(f"  Human said: {'correct' if row['human_grade'] else 'incorrect'}   "
                   f"Judge said: {'correct' if result.correct else 'incorrect'}   "
                   f"Judge reason: {result.reason}")
             print()

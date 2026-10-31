@@ -1,7 +1,7 @@
 # scripts/generate_judge_calibration_set.py
 #
 # Component 4, step 1: produce ~30 real Mem0 answers spanning every
-# question category, for YOU to hand-grade. This is intentionally cheap:
+# question category, to be graded by hand. This is intentionally cheap:
 # only the first 60 turns of two conversations are ingested (not full
 # conversations), which keeps token spend and rate-limit risk low while
 # still producing a realistic mix of correct and incorrect answers --
@@ -11,12 +11,13 @@
 #   python3 -m scripts.generate_judge_calibration_set
 #
 # Output: results/judge_calibration/answers.jsonl
-# One line per graded item, with a blank "human_grade" field for you
-# to fill in by hand (true / false / null) before running the judge.
+# One line per graded item, with a blank "human_grade" field to fill
+# in by hand (true / false / null) before running the judge.
 
 import dataclasses
 import json
 import pathlib
+from core.paths import RESULTS
 import sys
 from collections import defaultdict
 
@@ -27,7 +28,7 @@ TURNS_PER_CONV = 60          # keep ingestion cheap
 TARGET_PER_CATEGORY = 6      # 5 categories x 6 = 30 items
 CONV_INDICES = [0, 1]        # conv-26, conv-30 -- two different speaker pairs
 
-OUT_DIR = pathlib.Path("results/judge_calibration")
+OUT_DIR = RESULTS / "judge_calibration"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 OUT_FILE = OUT_DIR / "answers.jsonl"
 
@@ -74,7 +75,7 @@ def main():
                     "question": qa.question,
                     "gold": qa.answer,
                     "predicted": answer_text,
-                    "human_grade": None,   # <-- YOU fill this in: true / false
+                    "human_grade": None,   # filled in by hand: true / false
                 }
                 out.write(json.dumps(record) + "\n")
                 out.flush()

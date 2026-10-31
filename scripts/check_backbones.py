@@ -5,20 +5,21 @@
 #
 # Run this BEFORE launching the matrix. A backbone that fails here fails
 # fast for free; the same failure discovered eight hours into a run costs
-# you the run. A backbone that routes but logs cost_usd = 0.0 is worse --
+# the whole run. A backbone that routes but logs cost_usd = 0.0 is worse --
 # it produces a complete-looking result with a silently broken cost axis.
 #
 #   python3 -m scripts.check_backbones
 
 import json
 import pathlib
+from core.paths import RESULTS
 import sys
 import time
 
-from openai import OpenAI
+from core.proxy_client import proxy_client
 
 PROXY = "http://localhost:4000/v1"
-LOG = pathlib.Path("results/proxy/calls.jsonl")
+LOG = RESULTS / "proxy" / "calls.jsonl"
 
 ALIASES = ["answering", "judge", "claude-backbone", "gemini-backbone", "deepseek-backbone"]
 
@@ -30,7 +31,7 @@ def log_len() -> int:
 
 
 def main():
-    client = OpenAI(base_url=PROXY, api_key="proxy-dummy-key")
+    client = proxy_client(PROXY)
     results = {}
 
     for alias in ALIASES:

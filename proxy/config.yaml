@@ -55,3 +55,18 @@ litellm_settings:
   callbacks: ["logger.metering_logger"]
   drop_params: true
   set_verbose: false
+  # NO RETRIES IN THE PROXY (2026-10-31). Every retry goes through the
+  # caller's core/retry.call_with_retry, which counts it, so the
+  # integrity check can reconcile ok-call counts. Before this, litellm's
+  # router retried twice by default and timed out after 6000 s: in
+  # stacked conv0 v3c it timed out a request the client had abandoned
+  # and retried it on its own 79 minutes later (an extra ok row).
+  # The timeout is above the slowest ok call ever logged (110 s,
+  # extraction) and below the clients' (core/proxy_client.py, 360 s),
+  # so the proxy always answers first.
+  request_timeout: 300
+  num_retries: 0
+
+router_settings:
+  num_retries: 0
+  timeout: 300

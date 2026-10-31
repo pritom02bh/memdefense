@@ -1,7 +1,7 @@
 # scripts/recalibrate_judge.py
 #
-# Tests an ALTERNATIVE judge model against the calibration items you
-# already hand-graded. Reports Cohen's kappa so a cheaper (or
+# Tests an ALTERNATIVE judge model against the calibration items already
+# graded by hand. Reports Cohen's kappa so a cheaper (or
 # cross-provider) judge can be adopted on evidence rather than hope.
 #
 # WHY THIS IS SAFE TO RUN: it does not touch prompts/judge.txt, and it
@@ -10,7 +10,7 @@
 #
 # WHY IT MATTERS: kappa is a property of (judge model + prompt + task).
 # Swapping the judge invalidates the existing calibration completely. A
-# cheaper judge that agrees with you at kappa=0.62 would save money and
+# cheaper judge that agrees with the human grades at kappa=0.62 would save money and
 # quietly destroy the trustworthiness of every accuracy number.
 #
 # NOTE ON SCOPE: adversarial items are excluded. They are scored by
@@ -27,12 +27,13 @@ import argparse
 import hashlib
 import json
 import pathlib
+from core.paths import RESULTS
 import sys
 
-from openai import OpenAI
+from core.proxy_client import proxy_client
 
 PROXY = "http://localhost:4000/v1"
-CAL_FILE = pathlib.Path("results/judge_calibration/answers.jsonl")
+CAL_FILE = RESULTS / "judge_calibration" / "answers.jsonl"
 PROMPT_PATH = pathlib.Path("prompts/judge.txt")
 
 
@@ -81,7 +82,7 @@ def main():
           f"({len(rows) - len(items)} excluded: adversarial or ungraded).\n")
 
     template = PROMPT_PATH.read_text()
-    client = OpenAI(base_url=PROXY, api_key="proxy-dummy-key")
+    client = proxy_client(PROXY)
 
     human, model_grades, disagreements = [], [], []
     for i, r in enumerate(items, 1):
@@ -115,7 +116,7 @@ def main():
         print("the cache key does NOT include the judge model.")
     else:
         print(f"\nFAIL -- kappa {k:.3f} is below 0.8. Do not adopt this judge.")
-        print("Keep the calibrated one. A cheaper judge that disagrees with you")
+        print("Keep the calibrated one. A cheaper judge that disagrees with the human grades")
         print("saves money and invalidates every accuracy number in the paper.")
 
     if disagreements:
@@ -124,7 +125,7 @@ def main():
             print(f"  [{r['category']}] {r['question']}")
             print(f"    gold: {r['gold']}")
             print(f"    pred: {(r['predicted'] or '')[:110]}")
-            print(f"    you: {'correct' if r['human_grade'] else 'incorrect'}   "
+            print(f"    human: {'correct' if r['human_grade'] else 'incorrect'}   "
                   f"{args.model}: {'correct' if g else 'incorrect'}\n")
     return 0 if k >= 0.8 else 1
 

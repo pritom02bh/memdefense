@@ -1,9 +1,11 @@
 # core/judge.py
 #
 # Grades a predicted answer as correct/incorrect against a gold answer.
-# Uses the "judge" model alias (gpt-4o) -- deliberately stronger than and
-# different from the "answering" model (gpt-4o-mini) to avoid the judge
-# rating its own kind of output favorably.
+# Uses the "judge-claude" alias (claude-haiku-4-5-20251001) -- a different
+# PROVIDER from both answering backbones (gpt-4o-mini, gemini-3.1-flash-lite),
+# to avoid the judge rating its own kind of output favorably. It replaced
+# the original "judge" alias (gpt-4o) on 2026-08-21 after recalibration
+# (kappa 0.909 vs 0.841); the "judge" alias must not be used for grading.
 #
 # BEFORE THIS IS TRUSTED: run scripts/generate_judge_calibration_set.py,
 # hand-grade the output, then scripts/compute_kappa.py must show kappa >= 0.8
@@ -20,15 +22,19 @@ import json
 import pathlib
 from dataclasses import dataclass
 
-from openai import OpenAI
+from core.paths import JUDGE_CACHE
+from core.proxy_client import proxy_client
+from core.purpose import purpose, purpose_header, step
 
-from core.purpose import purpose, purpose_header
-
-PROXY_BASE_URL = "http://localhost:4000/v1"
 PROMPT_PATH = pathlib.Path(__file__).resolve().parent.parent / "prompts" / "judge.txt"
-CACHE_PATH = pathlib.Path(__file__).resolve().parent.parent / "results" / "judge_cache.jsonl"
+CACHE_PATH = JUDGE_CACHE
+# NOTE: the cache key covers the prompt but NOT the judge model. Every
+# row in the cache was graded by judge-claude (verified 2026-10-29 by
+# matching cache rows to the proxy log). If the judge model ever changes,
+# start a fresh cache file.
+JUDGE_ALIAS = "judge-claude"
 
-_client = OpenAI(base_url=PROXY_BASE_URL, api_key="proxy-dummy-key")
+_client = proxy_client()
 _prompt_template = PROMPT_PATH.read_text()
 
 # Hash of the prompt itself. Included in every cache key so that
@@ -77,7 +83,7 @@ def _append_cache(key: str, question: str, gold: str, predicted: str, result: Ju
 def judge(question: str, gold: str, predicted: str) -> JudgeResult:
     """
     Grades one (question, gold, predicted) triple. Cached by content hash --
-    you will re-grade the same items often (kappa calibration, re-runs after
+    the same items are re-graded often (kappa calibration, re-runs after
     a bug fix), and re-paying for identical judgments wastes money and adds
     non-determinism risk from re-sampling the model.
     """
@@ -89,13 +95,16 @@ def judge(question: str, gold: str, predicted: str) -> JudgeResult:
 
     prompt = _prompt_template.format(question=question, gold=gold, predicted=predicted)
 
-    with purpose("judge"):
+    # step("judge") plus the runner's cell() block put x-step and
+    # x-cell-id on the request, so judge calls are attributable to a cell.
+    with purpose("judge"), step("judge"):
         resp = _client.chat.completions.create(
-            # Cross-PROVIDER judge (Anthropic) grading an OpenAI answering
-            # model -- a stronger control against self-preference than
-            # same-provider judging. Recalibrated 2026-08-08: kappa=0.909
-            # on 24 core-4 hand-graded items, vs 0.841 for gpt-4o.
-            model="judge-claude",
+            # Cross-PROVIDER judge (Anthropic) grading OpenAI and Google
+            # answering models -- a stronger control against
+            # self-preference than same-provider judging. Recalibrated
+            # 2026-08-21: kappa=0.909 on 24 core-4 hand-graded items,
+            # vs 0.841 for gpt-4o.
+            model=JUDGE_ALIAS,
             temperature=0.0,
             messages=[{"role": "user", "content": prompt}],
             extra_headers=purpose_header(),

@@ -3,13 +3,13 @@
 # Component 4, step 2: hand-grade the calibration set.
 #
 # Shows one item at a time, takes y/n, and writes grades back safely.
-# Resumable -- already-graded items are skipped, so you can stop and
-# restart. Nothing is written until you answer, and the file is rewritten
+# Resumable -- already-graded items are skipped, so grading can stop and
+# restart. Nothing is written until an answer is given, and the file is rewritten
 # atomically after each grade so a crash can't corrupt it.
 #
 #   python3 -m scripts.grade_calibration
 #
-# GRADING RULE (must match prompts/judge.txt, or kappa measures your
+# GRADING RULE (must match prompts/judge.txt, or kappa measures the grader's
 # inconsistency rather than the judge's quality):
 #   y = the predicted answer conveys the same fact as gold, any wording
 #   n = different fact, too vague to inform, or an unwarranted "I don't know"
@@ -19,9 +19,10 @@
 
 import json
 import pathlib
+from core.paths import RESULTS
 import sys
 
-IN_FILE = pathlib.Path("results/judge_calibration/answers.jsonl")
+IN_FILE = RESULTS / "judge_calibration" / "answers.jsonl"
 
 
 def load_rows():

@@ -37,32 +37,26 @@ from collections import defaultdict
 from adapters.mem0_adapter import Mem0Adapter
 from core.dataset import load_locomo
 from core.judge import judge
-
-MAX_RETRIES = 6
-BASE_BACKOFF = 2.0   # seconds; doubles each attempt
+from core.paths import PROXY_LOG, RESULTS
+from core.retry import call_with_retry
 
 
 def with_backoff(fn, label: str):
-    """Retry on rate limits. Anything else raises immediately -- we want
-    real errors loud, not buried under retries."""
-    for attempt in range(MAX_RETRIES):
-        try:
-            return fn()
-        except Exception as e:
-            msg = str(e).lower()
-            is_rate_limit = "rate limit" in msg or "ratelimit" in msg or "429" in msg
-            if not is_rate_limit or attempt == MAX_RETRIES - 1:
-                raise
-            wait = BASE_BACKOFF * (2 ** attempt)
-            print(f"    rate limited on {label}; retry {attempt+1}/{MAX_RETRIES-1} "
-                  f"in {wait:.0f}s", flush=True)
-            time.sleep(wait)
-    raise RuntimeError("unreachable")
+    """Retry transient failures (rate limits, 5xx, timeouts) with
+    backoff; anything else, or exhausted retries, raises
+    core.retry.ModelCallFailed. Kept as a thin alias of the shared
+    policy so existing callers keep working."""
+    return call_with_retry(fn, label)
 
 
 def ingest_with_progress(adapter: Mem0Adapter, conv, every: int = 25):
     """Mem0's own ingest is silent for minutes. Drive it turn by turn so
-    progress is visible and a rate limit on one turn doesn't lose the run."""
+    progress is visible.
+
+    A turn that fails RAISES. This used to log "failed permanently",
+    count an error and move on -- a silently missing memory. Retries
+    happen per model call inside the adapter; retrying the whole turn
+    here could store a turn twice if it failed after a partial write."""
     written = 0
     errors = 0
     total = len(conv.turns)
@@ -71,12 +65,12 @@ def ingest_with_progress(adapter: Mem0Adapter, conv, every: int = 25):
     for i, turn in enumerate(conv.turns, 1):
         single = dataclasses.replace(conv, turns=(turn,))
         try:
-            stats = with_backoff(lambda: adapter.ingest(single), f"turn {i}")
-            written += stats.memories_written
-            errors += stats.errors
+            stats = adapter.ingest(single)
         except Exception as e:
-            errors += 1
             print(f"    turn {i} failed permanently: {type(e).__name__}: {e}", flush=True)
+            raise
+        written += stats.memories_written
+        errors += stats.errors
 
         if i % every == 0 or i == total:
             elapsed = time.monotonic() - start
@@ -110,7 +104,7 @@ def main():
     if args.max_turns:
         cell_id += f"_t{args.max_turns}"
 
-    out_dir = pathlib.Path("results/baseline") / cell_id
+    out_dir = RESULTS / "baseline" / cell_id
     out_dir.mkdir(parents=True, exist_ok=True)
     answers_file = out_dir / "answers.jsonl"
 
@@ -232,7 +226,7 @@ def main():
     print("building anything on top of this.")
     print("\nToken cost for this run:")
     print("  python3 -c \"import json;rows=[json.loads(l) for l in "
-          "open('results/proxy/calls.jsonl')];r=[x for x in rows if "
+          f"open('{PROXY_LOG}')];r=[x for x in rows if "
           f"x.get('cell_id')=='{cell_id}'];"
           "print('calls',len(r));print('tokens',sum(x['tokens_total'] for x in r));"
           "print('usd',round(sum(x['cost_usd'] for x in r),4))\"")
